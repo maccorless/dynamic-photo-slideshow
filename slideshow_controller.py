@@ -12,6 +12,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
 from location_service import LocationService
+from voice_command_service import VoiceCommandService
 
 
 class SlideshowController:
@@ -23,6 +24,9 @@ class SlideshowController:
         self.display_manager = display_manager
         self.location_service = LocationService(config)
         self.logger = logging.getLogger(__name__)
+        
+        # Initialize voice command service
+        self.voice_service = VoiceCommandService(self, config)
         
         # Slideshow state - using indexed selection instead of shuffled list
         self.is_playing = True
@@ -48,6 +52,9 @@ class SlideshowController:
         
         # Auto-advance flag for main thread processing
         self.auto_advance_requested = False
+        
+        # Voice command properties
+        self.is_paused = False
     
     def start_slideshow(self) -> None:
         """Start the slideshow with automatic advancement."""
@@ -63,6 +70,13 @@ class SlideshowController:
             self.logger.info(f"Starting slideshow with {photo_count} photos")
             self.is_running = True
             self.last_cache_check = time.time()
+            
+            # Start voice command service if available
+            if self.voice_service.is_voice_available():
+                if self.voice_service.start_listening():
+                    self.logger.info("Voice commands enabled: say 'next', 'back', 'stop', or 'go'")
+                else:
+                    self.logger.warning("Voice commands failed to start")
             
             # Display first photo(s)
             self._display_next_photo()
@@ -413,6 +427,7 @@ class SlideshowController:
     def _toggle_play_pause(self) -> None:
         """Toggle slideshow play/pause state."""
         self.is_playing = not self.is_playing
+        self.is_paused = not self.is_playing
         if self.is_playing:
             self.logger.info("Slideshow resumed")
         else:
@@ -472,12 +487,29 @@ class SlideshowController:
             # Restart timer for continuous auto-advance
             self._start_timer()
     
+    def next_photo(self) -> None:
+        """Public method for voice commands to advance to next photo."""
+        self._navigate_next()
+    
+    def previous_photo(self) -> None:
+        """Public method for voice commands to go to previous photo."""
+        self._navigate_previous()
+    
+    def toggle_pause(self) -> None:
+        """Public method for voice commands to toggle pause/resume."""
+        self._toggle_play_pause()
+    
     def _stop_slideshow(self) -> None:
         """Stop the slideshow and exit."""
         self.logger.info("Stopping slideshow")
         self.is_running = False
         self.is_playing = False
         self._stop_timer()
+        
+        # Stop voice command service
+        if hasattr(self, 'voice_service'):
+            self.voice_service.stop_listening_service()
+        
         self.display_manager.destroy()
     
     def _run_event_loop(self) -> None:

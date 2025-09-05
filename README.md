@@ -4,12 +4,17 @@ A fullscreen photo slideshow application for macOS that connects to Apple Photos
 
 ## Features
 
-- **Apple Photos Integration**: Direct connection to Photos library using configurable album
-- **Fullscreen Display**: Automatic orientation correction and optimal sizing
-- **EXIF Overlays**: Date and location information with configurable positioning
-- **Smart Navigation**: Auto-advance with keyboard and mouse controls
-- **Location Services**: Reverse geocoding with caching for GPS coordinates
-- **Configurable Settings**: JSON-based configuration with sensible defaults
+- **Fullscreen Photo Display**: Optimized for large displays with automatic scaling
+- **Apple Photos Integration**: Direct access to your Photos library and albums
+- **Smart Photo Selection**: Filters by people, places, keywords, and albums
+- **Portrait Photo Pairing**: Automatically pairs portrait photos side-by-side
+- **Navigation Controls**: Keyboard shortcuts and voice commands for navigation
+- **Voice Commands**: Say "next", "back", "stop", or "go" to control slideshow
+- **Auto-Advance Timer**: Configurable slideshow timing
+- **Location Overlays**: Shows photo location information when available
+- **History Navigation**: Browse previously shown photos with arrow keys
+- **Cache Extension**: Incremental photo loading without interrupting slideshow
+- **Comprehensive Configuration**: JSON-based settings for all options with sensible defaults
 
 ## Requirements
 
@@ -47,11 +52,20 @@ The app creates a configuration file at `~/.photo_slideshow_config.json` with th
 
 ## Controls
 
+### Keyboard Controls
 - **Spacebar**: Pause/resume slideshow
-- **Left Arrow**: Previous photo
 - **Right Arrow**: Next photo
-- **Shift**: Show filename overlay
+- **Left Arrow**: Previous photo
+- **Shift**: Toggle filename display
 - **Escape**: Exit slideshow
+
+### Voice Commands
+- **"next"** / **"forward"** / **"advance"**: Next photo
+- **"back"** / **"previous"** / **"backward"**: Previous photo
+- **"stop"** / **"pause"** / **"halt"**: Pause slideshow
+- **"go"** / **"start"** / **"resume"** / **"play"**: Resume slideshow
+
+*Note: Voice commands require microphone access and internet connection for speech recognition.*
 - **Single Click**: Previous photo
 - **Double Click**: Next photo
 

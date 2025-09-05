@@ -5,7 +5,7 @@ This document describes all configuration options available in `.photo_slideshow
 ## Photo Source Configuration
 
 ### `album_name` (string, default: "photoframe")
-Album name to use from Photos app. Set to empty string or null to use filtering instead of album.
+Album name to use from Photos app. Set to empty string or null to use filtering instead of album.   Currently not supported (5-sep-2025) with OS 26 Beta
 
 ### `filter_by_people` (boolean, default: false)
 Enable filtering by people instead of using album.
@@ -99,4 +99,25 @@ Number of previously displayed photo indexes to cache for functional previous na
 Enable debug scaling information.
 
 ### `LOGGING_VERBOSE` (boolean, default: false)
-Enable verbose logging.
+Enable verbose logging output to console and log file.
+
+## Voice Command Configuration
+
+### `voice_commands_enabled` (boolean, default: true)
+Enable or disable voice command recognition. Requires microphone access and internet connection for Google Speech API.
+
+### `voice_recognition_engine` (string, default: "google")
+Speech recognition engine to use. Currently supports "google" (Google Web Speech API).
+
+### `voice_confidence_threshold` (number, default: 0.7)
+Minimum confidence threshold for voice command recognition (0.0 to 1.0).
+
+### `voice_command_timeout` (number, default: 2.0)
+Maximum time in seconds to listen for a single voice command.
+
+### `voice_keywords` (object)
+Customizable keywords for each voice command:
+- `next`: Words that trigger next photo (default: ["next", "forward", "advance"])
+- `back`: Words that trigger previous photo (default: ["back", "previous", "backward"])
+- `pause`: Words that pause slideshow (default: ["stop", "pause", "halt"])
+- `resume`: Words that resume slideshow (default: ["go", "start", "resume", "play"])
