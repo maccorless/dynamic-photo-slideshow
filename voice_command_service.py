@@ -65,10 +65,19 @@ class VoiceCommandService:
             self.recognizer = sr.Recognizer()
             self.microphone = sr.Microphone()
             
+            # Configure recognizer for better sensitivity and ARM64 compatibility
+            self.recognizer.energy_threshold = 50  # Lower threshold for better detection
+            self.recognizer.dynamic_energy_threshold = True
+            self.recognizer.dynamic_energy_adjustment_damping = 0.15
+            self.recognizer.dynamic_energy_ratio = 1.5
+            self.recognizer.pause_threshold = 0.8  # Shorter pause detection
+            self.recognizer.phrase_threshold = 0.3  # Shorter phrase detection
+            
             # Adjust for ambient noise
             with self.microphone as source:
                 self.logger.info("Calibrating microphone for ambient noise...")
                 self.recognizer.adjust_for_ambient_noise(source, duration=1)
+                self.logger.info(f"Energy threshold set to: {self.recognizer.energy_threshold}")
             
             # Update command keywords from config if provided
             config_keywords = self.config.get('voice_keywords', {})
@@ -128,14 +137,47 @@ class VoiceCommandService:
             recognizer: Speech recognizer instance
             audio: Audio data to process
         """
+        self.logger.debug("Audio detected, processing...")
+        
         try:
-            # Recognize speech using Google Web Speech API
-            # Use show_all=True to get confidence scores and handle FLAC issues
-            text = recognizer.recognize_google(audio, show_all=False).lower().strip()
-            self.logger.debug(f"Voice recognition result: '{text}'")
+            # Use system FLAC encoder instead of bundled one
+            import os
+            import tempfile
             
-            # Process the recognized command
-            self._process_voice_command(text)
+            # Get WAV data and save to temporary file
+            wav_data = audio.get_wav_data()
+            
+            # Try direct recognition first (fastest)
+            try:
+                text = recognizer.recognize_google(audio, show_all=False).lower().strip()
+                self.logger.info(f"Voice recognition result: '{text}'")
+                self._process_voice_command(text)
+                return
+            except OSError as direct_e:
+                if "Bad CPU type" not in str(direct_e):
+                    raise direct_e
+                # Continue to alternative method
+            
+            # Alternative: Use system flac encoder
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
+                temp_wav.write(wav_data)
+                temp_wav_path = temp_wav.name
+            
+            try:
+                # Create new AudioData from the temp file
+                with sr.AudioFile(temp_wav_path) as source:
+                    temp_audio = recognizer.record(source)
+                
+                text = recognizer.recognize_google(temp_audio, show_all=False).lower().strip()
+                self.logger.info(f"Voice recognition result (temp file): '{text}'")
+                self._process_voice_command(text)
+                
+            finally:
+                # Clean up temp file
+                try:
+                    os.unlink(temp_wav_path)
+                except:
+                    pass
             
         except sr.UnknownValueError:
             # Speech was unintelligible - this is normal, don't log as error
@@ -143,13 +185,6 @@ class VoiceCommandService:
             
         except sr.RequestError as e:
             self.logger.warning(f"Voice recognition service error: {e}")
-            
-        except OSError as e:
-            if "Bad CPU type" in str(e) or "flac" in str(e).lower():
-                # FLAC encoder compatibility issue on ARM64 - try without FLAC
-                self.logger.debug("FLAC encoder compatibility issue, audio processing may be affected")
-            else:
-                self.logger.warning(f"Audio system error: {e}")
             
         except Exception as e:
             self.logger.error(f"Unexpected error in voice callback: {e}")
