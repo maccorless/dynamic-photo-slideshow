@@ -1,0 +1,74 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+slideshow_env/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Application specific
+*.log
+sync_*.log
+photo_analysis.json
+photo_count_debug.json
+filtering_debug.json
+
+# User configuration (keep template, ignore user-specific)
+# Note: We'll keep the config file since it contains good defaults
+# Users can create their own local config
+
+# Cache and temporary files
+*.cache
+*.tmp
+temp/
+cache/
+
+# Sensitive data
+*.key
+*.pem
+*.p12
+credentials.json
+secrets.json
