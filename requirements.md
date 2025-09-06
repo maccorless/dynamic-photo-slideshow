@@ -170,9 +170,68 @@ pillow-heif>=0.13.0
 - **requests**: HTTP library updates
 - **pillow-heif**: Format support improvements
 
+## Voice Recognition Commands
+
+### Supported Voice Commands
+The slideshow supports hands-free voice control using the system's built-in speech recognition:
+
+#### Navigation Commands
+- **"RIGHT"** or **"NEXT"** → Advance to next photo
+- **"LEFT"** or **"PREVIOUS"** → Go back to previous photo
+- **"GOLLY"** or **"GULLY"** → Resume slideshow (most reliable)
+- **"STOP"** or **"PAUSE"** → Pause slideshow
+
+#### Alternative Commands
+- **"FORWARD"**, **"ADVANCE"** → Next photo (alternatives)
+- **"BACK"**, **"BACKWARD"** → Previous photo (alternatives)
+- **"GO"**, **"START"**, **"RESUME"**, **"PLAY"**, **"CONTINUE"** → Resume slideshow
+- **"HALT"** → Pause slideshow (alternative)
+
+### Voice Recognition Requirements
+- **Microphone Access**: System microphone permissions required
+- **Speech Recognition**: Uses Google Speech Recognition API
+- **Internet Connection**: Required for voice processing
+- **Ambient Noise**: Automatic calibration on startup
+- **Confidence Threshold**: Configurable (default: 0.3 for high sensitivity)
+
+### Voice Command Configuration
+Located in `~/.photo_slideshow_config.json`:
+```json
+{
+  "voice_commands_enabled": true,
+  "voice_recognition_engine": "google",
+  "voice_confidence_threshold": 0.3,
+  "voice_command_timeout": 2.0,
+  "voice_keywords": {
+    "next": ["next", "forward", "advance", "right"],
+    "back": ["back", "previous", "backward", "left"],
+    "pause": ["stop", "pause", "halt"],
+    "resume": ["golly", "gully", "go", "start", "resume", "play", "continue"]
+  }
+}
+```
+
+### Voice Recognition Tips
+- **Clear Speech**: Speak clearly and at normal volume
+- **Single Words**: Use single command words for best recognition
+- **"GOLLY" vs "GO"**: "GOLLY" works more reliably than "GO" due to phonetic clarity
+- **"LEFT"/"RIGHT"**: More reliable than "BACK"/"FORWARD" for navigation
+- **Ambient Noise**: System auto-calibrates but quiet environment helps
+- **Retry Commands**: If not recognized, wait 2 seconds and try again
+
+### Troubleshooting Voice Commands
+- **No Recognition**: Check microphone permissions in System Preferences
+- **Poor Recognition**: Ensure internet connection for Google Speech API
+- **Command Delays**: 1.5 second delay is normal for visual feedback
+- **Inconsistent Response**: Try alternative command words listed above
+
 ## Future Requirements
 
 ### Planned Enhancements
+- **Local Voice Processing**: Offline speech recognition capabilities
+- **Custom Voice Commands**: User-definable command words
+- **Voice Feedback**: Audio confirmation of recognized commands
+- **Multiple Languages**: Support for non-English voice commands
 - **GUI Configuration**: May require additional UI libraries
 - **Advanced Transitions**: Potential OpenGL/Metal requirements
 - **Multiple Albums**: Enhanced album management capabilities

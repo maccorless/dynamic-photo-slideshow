@@ -48,8 +48,8 @@ def main() -> None:
         photo_manager = PhotoManager(config)
         
         # 3. Verify configured album exists
+        album_name = config.get('album_name', 'photoframe')
         if not photo_manager.verify_album():
-            album_name = config.get('album_name', 'photoframe')
             print(f"Error: Album '{album_name}' not found in Photos library.")
             print("Please create this album in Photos or update the configuration file.")
             return
@@ -57,12 +57,10 @@ def main() -> None:
         # 4. Load initial batch of photos with orientation detection
         photos = photo_manager.load_photos()
         if not photos:
-            album_name = config.get('album_name', 'photoframe')
             print(f"Error: No photos found in album '{album_name}'.")
             print("Please add photos to this album in Photos.")
             return
         
-        album_name = config.get('album_name', 'photoframe')
         logger.info(f"Loaded {len(photos)} photos from album '{album_name}'")
         
         # 5. Start slideshow automatically

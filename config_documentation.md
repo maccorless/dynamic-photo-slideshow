@@ -104,6 +104,8 @@ Enable verbose logging output to console and log file.
 ## Voice Command Configuration
 
 ### `voice_commands_enabled` (boolean, default: true)
+
+### `voice_confidence_threshold` (number, default: 0.7)
 Enable or disable voice command recognition. Requires microphone access and internet connection for Google Speech API.
 
 ### `voice_recognition_engine` (string, default: "google")
@@ -120,4 +122,7 @@ Customizable keywords for each voice command:
 - `next`: Words that trigger next photo (default: ["next", "forward", "advance"])
 - `back`: Words that trigger previous photo (default: ["back", "previous", "backward"])
 - `pause`: Words that pause slideshow (default: ["stop", "pause", "halt"])
-- `resume`: Words that resume slideshow (default: ["go", "start", "resume", "play"])
+- `resume`: Words that resume slideshow (default: ["blueberry", "start", "resume", "play"])
+
+### `show_countdown_timer` (boolean, default: true)
+Controls whether to display a countdown timer in the lower right corner showing seconds remaining until the next automatic slide change. The timer updates every second and is hidden when the slideshow is paused or stopped.

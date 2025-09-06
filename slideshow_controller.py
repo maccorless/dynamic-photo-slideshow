@@ -28,6 +28,9 @@ class SlideshowController:
         # Initialize voice command service
         self.voice_service = VoiceCommandService(self, config)
         
+        # Set controller reference in display manager for overlay state checking
+        self.display_manager.set_controller_reference(self)
+        
         # Slideshow state - using indexed selection instead of shuffled list
         self.is_playing = True
         self.is_running = False
@@ -35,8 +38,9 @@ class SlideshowController:
         self.current_photo_pair = None
         
         # Timing
-        self.interval = config.get('slideshow_interval', config.get('SLIDESHOW_INTERVAL_SECONDS', 10))
+        self.interval = config.get('slideshow_interval', 10)
         self.timer_thread = None
+        self.countdown_thread = None
         self.last_advance_time = 0
         self.last_cache_check = time.time()
         self.cache_refresh_interval = config.get('cache_refresh_check_interval', 3600)  # Default 1 hour
@@ -72,7 +76,7 @@ class SlideshowController:
             self.last_cache_check = time.time()
             
             # Start voice command service if available
-            if self.voice_service.is_voice_available():
+            if self.voice_service.is_available():
                 if self.voice_service.start_listening():
                     self.logger.info("Voice commands enabled: say 'next', 'back', 'stop', or 'go'")
                 else:
@@ -91,61 +95,6 @@ class SlideshowController:
             self.logger.error(f"Error starting slideshow: {e}")
             raise
     
-    def _process_portrait_pairing(self, photos: List[Dict[str, Any]]) -> List[Any]:
-        """Process photos to pair portrait photos side by side."""
-        try:
-            portrait_photos = []
-            landscape_photos = []
-            
-            # Separate portrait and landscape photos
-            for photo in photos:
-                if self._is_portrait_photo(photo):
-                    portrait_photos.append(photo)
-                else:
-                    landscape_photos.append(photo)
-            
-            self.logger.info(f"Found {len(portrait_photos)} portrait and {len(landscape_photos)} landscape photos")
-            
-            # Create pairs from portrait photos
-            paired_photos = []
-            i = 0
-            while i < len(portrait_photos) - 1:
-                # Create a pair of two portrait photos
-                pair = [portrait_photos[i], portrait_photos[i + 1]]
-                paired_photos.append(pair)
-                i += 2
-            
-            # Add any remaining single portrait photo
-            if i < len(portrait_photos):
-                paired_photos.append(portrait_photos[i])
-            
-            # Combine paired portraits with landscape photos
-            result = paired_photos + landscape_photos
-            
-            self.logger.info(f"Created {len(paired_photos)} portrait pairs/singles and {len(landscape_photos)} landscape photos")
-            return result
-            
-        except Exception as e:
-            self.logger.error(f"Error processing portrait pairing: {e}")
-            return photos
-    
-    def _is_portrait_photo(self, photo: Dict[str, Any]) -> bool:
-        """Determine if a photo is portrait orientation."""
-        try:
-            width = photo.get('width', 0)
-            height = photo.get('height', 0)
-            
-            if width > 0 and height > 0:
-                return height > width
-            
-            # Fallback: check orientation from EXIF if available
-            orientation = photo.get('exif_orientation', 1)
-            # EXIF orientations 6 and 8 are typically portrait after rotation
-            return orientation in [6, 8]
-            
-        except Exception as e:
-            self.logger.debug(f"Error determining photo orientation: {e}")
-            return False
     
     def _is_image_file(self, filename: str) -> bool:
         """Check if the file is a supported image format."""
@@ -210,7 +159,7 @@ class SlideshowController:
                         
                         # Add photo pair to history if this is a new photo (not from history navigation)
                         if self.history_position == -1:
-                            self._add_to_history((photo_index, second_portrait_index))
+                            self._add_to_history((photo_index, second_photo_index))
                         return
                     else:
                         # Invalid photo pair in history, generate new one
@@ -257,11 +206,11 @@ class SlideshowController:
                 pairing_attempts = 0
                 
                 while pairing_attempts < 10 and not second_photo:
-                    second_portrait_index = self.photo_manager.get_random_portrait_index()
+                    second_photo_index = self.photo_manager.get_random_portrait_index()
                     
-                    if (second_portrait_index is not None and 
-                        second_portrait_index != photo_index):
-                        candidate_second = self.photo_manager.get_photo_by_index(second_portrait_index)
+                    if (second_photo_index is not None and 
+                        second_photo_index != photo_index):
+                        candidate_second = self.photo_manager.get_photo_by_index(second_photo_index)
                         
                         if (candidate_second and 
                             self._is_image_file(candidate_second.get('filename', ''))):
@@ -274,7 +223,7 @@ class SlideshowController:
                     # Display photo pair
                     photo_pair = [photo, second_photo]
                     self.current_photo_pair = photo_pair
-                    self.logger.info(f"Displaying photo pair: {photo['filename']}, {second_photo['filename']} ({photo_index+1}, {second_portrait_index+1} of {photo_count})")
+                    self.logger.info(f"Displaying photo pair: {photo['filename']}, {second_photo['filename']} ({photo_index+1}, {second_photo_index+1} of {photo_count})")
                     
                     # Get location string from first photo if GPS coordinates available
                     location_string = None
@@ -289,7 +238,7 @@ class SlideshowController:
                     
                     # Add photo pair to history if this is a new photo (not from history navigation)
                     if self.history_position == -1:
-                        self._add_to_history((photo_index, second_portrait_index))
+                        self._add_to_history((photo_index, second_photo_index))
                 else:
                     # Display single portrait photo
                     self.current_photo_pair = photo
@@ -367,9 +316,12 @@ class SlideshowController:
         if not self.photo_history:
             return
         
-        # If we're at current photo, start from the last item in history
+        # If we're at the current photo, start from the one before the last item in history
         if self.history_position == -1:
-            self.history_position = len(self.photo_history) - 1
+            # Need at least two photos in history to go back
+            if len(self.photo_history) < 2:
+                return
+            self.history_position = len(self.photo_history) - 2
         # Otherwise, move back in history
         elif self.history_position > 0:
             self.history_position -= 1
@@ -377,6 +329,7 @@ class SlideshowController:
             # Already at the oldest photo in history
             return
         
+        # Display the photo from history
         self._display_next_photo()
     
     def _navigate_next(self) -> None:
@@ -403,11 +356,11 @@ class SlideshowController:
             if key == 'escape':
                 self._stop_slideshow()
             elif key == 'space':
-                self._toggle_play_pause()
+                self.toggle_pause()  # Use same method as voice commands
             elif key == 'left':
-                self._navigate_previous()
+                self.previous_photo()  # Use same method as voice commands
             elif key == 'right':
-                self._navigate_next()
+                self.next_photo()  # Use same method as voice commands
             elif key == 'shift_l' or key == 'shift_r':
                 self._toggle_filename_display()
             
@@ -430,8 +383,18 @@ class SlideshowController:
         self.is_paused = not self.is_playing
         if self.is_playing:
             self.logger.info("Slideshow resumed")
+            # Clear STOPPED overlay when resuming
+            if hasattr(self, 'display_manager') and self.display_manager:
+                self.display_manager.clear_stopped_overlay()
+            # Restart timer
+            self._restart_timer()
         else:
             self.logger.info("Slideshow paused")
+            # Show STOPPED overlay when pausing
+            if hasattr(self, 'display_manager') and self.display_manager:
+                self.display_manager.show_stopped_overlay()
+            # Stop timer
+            self._stop_timer()
     
     def _advance_to_next_photo(self) -> None:
         """Advance to the next photo in the sequence."""
@@ -458,12 +421,16 @@ class SlideshowController:
         self.timer_thread = threading.Timer(self.interval, self._auto_advance)
         self.timer_thread.daemon = True
         self.timer_thread.start()
+        
+        # Start countdown timer display
+        self._start_countdown_timer()
     
     def _stop_timer(self) -> None:
         """Stop auto-advance timer."""
         if self.timer_thread and self.timer_thread.is_alive():
             self.timer_thread.cancel()
             self.timer_thread = None
+        self._stop_countdown_timer()
     
     def _restart_timer(self) -> None:
         """Restart auto-advance timer."""
@@ -479,25 +446,77 @@ class SlideshowController:
                 self.display_manager.root.after(0, self._navigate_next)
                 self.display_manager.root.after(0, self._start_timer)
     
-    def _advance_photo_on_main_thread(self) -> None:
-        """Advance photo on main thread to avoid GUI threading issues."""
-        if self.is_playing and self.is_running:
-            self.current_index = (self.current_index + 1) % len(self.photos)
-            self._display_current_photo()
-            # Restart timer for continuous auto-advance
-            self._start_timer()
     
     def next_photo(self) -> None:
-        """Public method for voice commands to advance to next photo."""
+        """Public method for both voice commands and keyboard navigation."""
+        was_paused = self.is_paused
         self._navigate_next()
+        if not was_paused:
+            self._restart_timer()
+        if was_paused:
+            self.is_playing = False
+            self.is_paused = True
     
     def previous_photo(self) -> None:
-        """Public method for voice commands to go to previous photo."""
+        """Public method for both voice commands and keyboard navigation."""
+        was_paused = self.is_paused
         self._navigate_previous()
+        if not was_paused:
+            self._restart_timer()
+        if was_paused:
+            self.is_playing = False
+            self.is_paused = True
     
+    def pause_for_voice_command(self) -> None:
+        """Pause the timer for voice command processing without changing play state."""
+        self._stop_timer()
+
+    def resume_after_voice_command(self) -> None:
+        """Resume the timer after voice command processing if slideshow is playing."""
+        if self.is_playing:
+            self._restart_timer()
+
     def toggle_pause(self) -> None:
         """Public method for voice commands to toggle pause/resume."""
+        # Use same logic as spacebar
         self._toggle_play_pause()
+    
+    def _start_countdown_timer(self) -> None:
+        """Start countdown timer display thread."""
+        if not self.config.get('show_countdown_timer', False):
+            return
+        
+        self._stop_countdown_timer()  # Stop any existing countdown timer
+        
+        def countdown_loop():
+            while self.is_playing and self.is_running and self.timer_thread and self.timer_thread.is_alive():
+                try:
+                    elapsed = time.time() - self.last_advance_time
+                    remaining = max(0, int(self.interval - elapsed))
+                    
+                    # Update countdown display on main thread
+                    if self.display_manager.root:
+                        self.display_manager.root.after(0, lambda r=remaining: self.display_manager.update_countdown_timer(r))
+                    
+                    if remaining <= 0:
+                        break
+                    
+                    time.sleep(1)  # Update every second
+                except Exception as e:
+                    self.logger.error(f"Error in countdown timer: {e}")
+                    break
+        
+        self.countdown_thread = threading.Thread(target=countdown_loop, daemon=True)
+        self.countdown_thread.start()
+    
+    def _stop_countdown_timer(self) -> None:
+        """Stop countdown timer display."""
+        if self.countdown_thread and self.countdown_thread.is_alive():
+            self.countdown_thread = None
+        
+        # Clear countdown display
+        if self.display_manager:
+            self.display_manager.clear_countdown_timer()
     
     def _stop_slideshow(self) -> None:
         """Stop the slideshow and exit."""

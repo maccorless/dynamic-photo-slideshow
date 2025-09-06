@@ -30,6 +30,8 @@ class DisplayManager:
         self.screen_height = 0
         self.current_image_id = None
         self.overlay_font = None
+        self.stopped_overlay_id = None
+        self.countdown_overlay_id = None
         
         self._setup_display()
     
@@ -104,8 +106,8 @@ class DisplayManager:
             # Convert to PhotoImage for tkinter
             photo_image = ImageTk.PhotoImage(display_image)
             
-            # Clear canvas and display image
-            self.canvas.delete("all")
+            # Clear canvas and display image (preserve overlays)
+            self._clear_canvas_preserve_overlays()
             
             # Center image on canvas
             x = (self.screen_width - display_image.width) // 2
@@ -122,6 +124,9 @@ class DisplayManager:
             # Update display
             self.root.update()
             
+            # Show STOPPED overlay AFTER image is displayed if slideshow is paused
+            self._refresh_stopped_overlay()
+            
         except Exception as e:
             self.logger.error(f"Error displaying single photo: {e}")
             # Display error message instead of black screen
@@ -130,8 +135,8 @@ class DisplayManager:
     def _display_paired_photos(self, photo_pair: List[Dict[str, Any]], location_string: Optional[str] = None) -> None:
         """Display two portrait photos side by side."""
         try:
-            # Clear canvas
-            self.canvas.delete("all")
+            # Clear canvas (preserve overlays)
+            self._clear_canvas_preserve_overlays()
             
             images = []
             photo_images = []
@@ -214,10 +219,13 @@ class DisplayManager:
             # Update display
             self.root.update()
             
+            # Show STOPPED overlay AFTER image is displayed if slideshow is paused
+            self._refresh_stopped_overlay()
+            
         except Exception as e:
             self.logger.error(f"Error displaying paired photos: {e}")
             # Display error message instead of black screen
-            self._display_error_message(f"Cannot load images: {os.path.basename(photo_pair[0].get('path', 'Unknown'))}")
+            self._display_error_message(f"Cannot load photo pair images: {os.path.basename(photo_pair[0].get('path', 'Unknown'))}")
     
     def _apply_orientation_correction(self, image: Image.Image, orientation: int) -> Image.Image:
         """Apply EXIF orientation correction."""
@@ -272,8 +280,8 @@ class DisplayManager:
     def _display_error_message(self, message: str) -> None:
         """Display an error message instead of a black screen."""
         try:
-            # Clear canvas
-            self.canvas.delete("all")
+            # Clear canvas (preserve overlays)
+            self._clear_canvas_preserve_overlays()
             
             # Create a simple error display
             self.canvas.configure(bg='black')
@@ -439,6 +447,132 @@ class DisplayManager:
             
         except Exception as e:
             self.logger.error(f"Error showing filename overlay: {e}")
+    
+    def show_voice_command_overlay(self, command: str) -> None:
+        """Show voice command overlay for 1.5 seconds."""
+        try:
+            # Position voice command at bottom-center
+            font_size = 32
+            text_x = self.screen_width // 2
+            text_y = self.screen_height - 50
+            
+            # Create voice command overlay with distinctive styling
+            overlay_id = self.canvas.create_text(
+                text_x, text_y,
+                text=f"🎤 {command.upper()}",
+                font=('Arial', font_size, 'bold'),
+                fill='lime',
+                anchor=tk.S
+            )
+            
+            # Remove after 1.5 seconds
+            self.root.after(1500, lambda: self.canvas.delete(overlay_id))
+            
+        except Exception as e:
+            self.logger.error(f"Error showing voice command overlay: {e}")
+    
+    def show_stopped_overlay(self) -> None:
+        """Show persistent STOPPED overlay at bottom of screen."""
+        try:
+            # Clear any existing stopped overlay
+            self.clear_stopped_overlay()
+            
+            # Position STOPPED overlay lower on screen to avoid conflicts
+            font_size = 28
+            text_x = self.screen_width // 2
+            text_y = self.screen_height - 20
+            
+            # Create persistent STOPPED overlay
+            self.stopped_overlay_id = self.canvas.create_text(
+                text_x, text_y,
+                text="⏹️ STOPPED",
+                font=('Arial', font_size, 'bold'),
+                fill='red',
+                anchor=tk.S
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Error showing stopped overlay: {e}")
+    
+    def clear_stopped_overlay(self) -> None:
+        """Clear the persistent STOPPED overlay."""
+        try:
+            if hasattr(self, 'stopped_overlay_id') and self.stopped_overlay_id:
+                self.canvas.delete(self.stopped_overlay_id)
+                self.stopped_overlay_id = None
+        except Exception as e:
+            self.logger.error(f"Error clearing stopped overlay: {e}")
+    
+    def _clear_canvas_preserve_overlays(self) -> None:
+        """Clear canvas completely - overlays will be recreated after image display."""
+        try:
+            # Clear entire canvas - no preservation needed
+            self.canvas.delete("all")
+            self.current_image_id = None
+            self.stopped_overlay_id = None
+            self.countdown_overlay_id = None
+                
+        except Exception as e:
+            self.logger.error(f"Error clearing canvas: {e}")
+            # Fallback to regular clear
+            self.canvas.delete("all")
+    
+    def update_countdown_timer(self, seconds_remaining: int) -> None:
+        """Update countdown timer display in lower right corner."""
+        try:
+            # Check if countdown timer is enabled
+            if not self.config.get('show_countdown_timer', False):
+                return
+            
+            # Clear existing countdown overlay
+            if hasattr(self, 'countdown_overlay_id') and self.countdown_overlay_id:
+                self.canvas.delete(self.countdown_overlay_id)
+                self.countdown_overlay_id = None
+            
+            # Don't show countdown if paused or stopped
+            if seconds_remaining <= 0:
+                return
+            
+            # Position countdown in lower right corner
+            font_size = 18
+            text_x = self.screen_width - 20
+            text_y = self.screen_height - 20
+            
+            # Create countdown overlay
+            self.countdown_overlay_id = self.canvas.create_text(
+                text_x, text_y,
+                text=f"{seconds_remaining}s",
+                font=('Arial', font_size),
+                fill='white',
+                anchor=tk.SE
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Error updating countdown timer: {e}")
+    
+    def clear_countdown_timer(self) -> None:
+        """Clear the countdown timer display."""
+        try:
+            if hasattr(self, 'countdown_overlay_id') and self.countdown_overlay_id:
+                self.canvas.delete(self.countdown_overlay_id)
+                self.countdown_overlay_id = None
+        except Exception as e:
+            self.logger.error(f"Error clearing countdown timer: {e}")
+    
+    def _refresh_stopped_overlay(self) -> None:
+        """Show STOPPED overlay if slideshow is paused - called after image display."""
+        try:
+            # Check if we should show stopped overlay by checking controller state
+            # This is called after image display to ensure overlay is on top
+            if hasattr(self, 'controller_ref') and self.controller_ref:
+                if hasattr(self.controller_ref, 'is_paused') and self.controller_ref.is_paused:
+                    self.show_stopped_overlay()
+        except Exception as e:
+            self.logger.error(f"Error refreshing stopped overlay: {e}")
+    
+    def set_controller_reference(self, controller) -> None:
+        """Set reference to controller for state checking."""
+        self.controller_ref = controller
     
     def bind_key_events(self, callback) -> None:
         """Bind keyboard events to callback function."""

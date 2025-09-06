@@ -17,6 +17,13 @@ except ImportError:
     SPEECH_RECOGNITION_AVAILABLE = False
     sr = None
 
+try:
+    from pydub import AudioSegment
+    PYDUB_AVAILABLE = True
+except ImportError:
+    PYDUB_AVAILABLE = False
+    AudioSegment = None
+
 
 class VoiceCommandService:
     """Service for handling voice commands in the slideshow application."""
@@ -47,7 +54,7 @@ class VoiceCommandService:
             'next': ['next', 'forward', 'advance'],
             'back': ['back', 'previous', 'backward'],
             'pause': ['stop', 'pause', 'halt'],
-            'resume': ['go', 'start', 'resume', 'play']
+            'resume': ['blueberry', 'start', 'resume', 'play']
         }
         
         # Initialize if speech recognition is available and enabled
@@ -70,7 +77,8 @@ class VoiceCommandService:
             self.recognizer.dynamic_energy_threshold = True
             self.recognizer.dynamic_energy_adjustment_damping = 0.15
             self.recognizer.dynamic_energy_ratio = 1.5
-            self.recognizer.pause_threshold = 0.8  # Shorter pause detection
+            self.recognizer.pause_threshold = 0.5  # Optimized for short commands
+            self.recognizer.non_speaking_duration = 0.3 # Optimized for short commands
             self.recognizer.phrase_threshold = 0.3  # Shorter phrase detection
             
             # Adjust for ambient noise
@@ -131,61 +139,53 @@ class VoiceCommandService:
     
     def _voice_callback(self, recognizer: sr.Recognizer, audio: sr.AudioData) -> None:
         """
-        Callback function for processing recognized audio.
-        
-        Args:
-            recognizer: Speech recognizer instance
-            audio: Audio data to process
+        Callback function for processing recognized audio with normalization.
+        It now pauses the slideshow timer during recognition to prevent race conditions.
         """
-        self.logger.debug("Audio detected, processing...")
+        self.logger.debug("Audio detected, pausing timer and processing command...")
         
+        # Pause timer immediately to capture the state at the moment of speech
+        was_playing = self.controller.is_playing
+        if was_playing:
+            self.controller.pause_for_voice_command()
+        
+        if not PYDUB_AVAILABLE:
+            self.logger.warning("pydub not available, skipping audio normalization.")
+            try:
+                text = recognizer.recognize_google(audio).lower().strip()
+                self._process_voice_command(text)
+            except (sr.UnknownValueError, sr.RequestError) as e:
+                self.logger.debug(f"Standard recognition failed: {e}")
+            return
+
         try:
-            # Use system FLAC encoder instead of bundled one
-            import os
-            import tempfile
+            # Get raw audio data and convert to a pydub AudioSegment
+            raw_data = audio.get_raw_data(convert_rate=audio.sample_rate, convert_width=audio.sample_width)
+            audio_segment = AudioSegment(raw_data, sample_width=audio.sample_width, frame_rate=audio.sample_rate, channels=1) # Assuming mono
+
+            # --- Audio Normalization ---
+            if audio_segment.dBFS < -20:
+                boost_db = abs(audio_segment.dBFS) - 15
+                audio_segment = audio_segment + boost_db
+                self.logger.info(f"Live audio is quiet ({audio_segment.dBFS:.1f} dBFS). Boosting volume by {boost_db:.1f} dB.")
+
+            if audio_segment.frame_rate != 16000:
+                audio_segment = audio_segment.set_frame_rate(16000)
+
+            # Export normalized audio to a WAV format in memory
+            normalized_wav_data = audio_segment.export(format="wav").read()
             
-            # Get WAV data and save to temporary file
-            wav_data = audio.get_wav_data()
-            
-            # Try direct recognition first (fastest)
-            try:
-                text = recognizer.recognize_google(audio, show_all=False).lower().strip()
-                self.logger.info(f"Voice recognition result: '{text}'")
-                self._process_voice_command(text)
-                return
-            except OSError as direct_e:
-                if "Bad CPU type" not in str(direct_e):
-                    raise direct_e
-                # Continue to alternative method
-            
-            # Alternative: Use system flac encoder
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
-                temp_wav.write(wav_data)
-                temp_wav_path = temp_wav.name
-            
-            try:
-                # Create new AudioData from the temp file
-                with sr.AudioFile(temp_wav_path) as source:
-                    temp_audio = recognizer.record(source)
-                
-                text = recognizer.recognize_google(temp_audio, show_all=False).lower().strip()
-                self.logger.info(f"Voice recognition result (temp file): '{text}'")
-                self._process_voice_command(text)
-                
-            finally:
-                # Clean up temp file
-                try:
-                    os.unlink(temp_wav_path)
-                except:
-                    pass
-            
+            # Create new AudioData with the normalized audio
+            normalized_audio = sr.AudioData(normalized_wav_data, 16000, 2) # 16kHz, 16-bit (2 bytes)
+
+            # Recognize the normalized audio
+            text = recognizer.recognize_google(normalized_audio).lower().strip()
+            self._process_voice_command(text)
+
         except sr.UnknownValueError:
-            # Speech was unintelligible - this is normal, don't log as error
             self.logger.debug("Voice recognition could not understand audio")
-            
         except sr.RequestError as e:
             self.logger.warning(f"Voice recognition service error: {e}")
-            
         except Exception as e:
             self.logger.error(f"Unexpected error in voice callback: {e}")
     
@@ -196,52 +196,271 @@ class VoiceCommandService:
         Args:
             text: Recognized speech text
         """
+        # Log all voice recognition attempts for debugging
+        self.logger.info(f"Voice recognition attempt: '{text}'")
+        
         # Check confidence threshold if configured
         confidence_threshold = self.config.get('voice_confidence_threshold', 0.0)
         
-        # Find matching command
+        # Find matching command using simplified approach
         command_found = False
         
-        for command, keywords in self.command_keywords.items():
-            for keyword in keywords:
-                if keyword in text:
-                    self.logger.info(f"Voice command recognized: '{keyword}' -> {command}")
-                    self._execute_command(command)
-                    command_found = True
-                    break
-            if command_found:
+        # Try exact word matching with very permissive approach
+        text_lower = text.lower().strip()
+        words = text_lower.split()
+        
+        # Check for exact matches first
+        for word in words:
+            if word == 'left' or word == 'back' or word == 'previous' or word == 'backward':
+                self.logger.info(f"Voice command recognized: exact word '{word}' -> back (from text: '{text}')")
+                self._show_voice_feedback('previous' if word == 'previous' else 'back')
+                self._schedule_command_execution('back', word)
+                command_found = True
+                break
+            elif word == 'right' or word == 'next' or word == 'forward' or word == 'advance':
+                self.logger.info(f"Voice command recognized: exact word '{word}' -> next (from text: '{text}')")
+                self._show_voice_feedback('next')
+                self._schedule_command_execution('next', word)
+                command_found = True
+                break
+            elif word == 'blueberry' or word == 'start' or word == 'resume' or word == 'play' or word == 'continue':
+                self.logger.info(f"Voice command recognized: exact word '{word}' -> resume (from text: '{text}')")
+                self._show_voice_feedback('blueberry')
+                self._schedule_command_execution('resume', word)
+                command_found = True
+                break
+            elif word == 'stop' or word == 'pause' or word == 'halt':
+                self.logger.info(f"Voice command recognized: exact word '{word}' -> pause (from text: '{text}')")
+                self._show_voice_feedback('stop')
+                self._schedule_command_execution('pause', word)
+                command_found = True
                 break
         
+        # If single letter didn't work, try original fuzzy matching as fallback
         if not command_found:
-            self.logger.debug(f"No matching voice command found for: '{text}'")
+            for command, keywords in self.command_keywords.items():
+                for keyword in keywords:
+                    # Use fuzzy matching for better recognition
+                    if self._fuzzy_match(keyword, text):
+                        self.logger.info(f"Voice command recognized: '{keyword}' -> {command} (from text: '{text}')")
+                        # Show visual feedback for recognized command
+                        self._show_voice_feedback(keyword)
+                        # Execute command after 1.5 second delay (after overlay shows)
+                        self._schedule_command_execution(command, keyword)
+                        command_found = True
+                        break
+                if command_found:
+                    break
+        
+        if not command_found:
+            self.logger.info(f"No matching voice command found for: '{text}'")
+        
+        # Resume timer if it was playing before the command
+        if was_playing:
+            self.controller.resume_after_voice_command()
     
-    def _execute_command(self, command: str) -> None:
+    def _show_voice_feedback(self, keyword: str) -> None:
         """
-        Execute the specified command by calling appropriate controller methods.
+        Show visual feedback for recognized voice command.
         
         Args:
-            command: Command to execute ('next', 'back', 'pause', 'resume')
+            keyword: The recognized keyword to display
         """
+        try:
+            # Get display manager from controller and show overlay
+            if hasattr(self.controller, 'display_manager') and self.controller.display_manager:
+                self.controller.display_manager.show_voice_command_overlay(keyword)
+        except Exception as e:
+            self.logger.debug(f"Error showing voice feedback: {e}")
+    
+    def _fuzzy_match(self, keyword: str, text: str) -> bool:
+        """
+        Fuzzy matching for voice commands to improve recognition.
+        
+        Args:
+            keyword: The target keyword to match
+            text: The recognized speech text
+            
+        Returns:
+            bool: True if keyword matches text with fuzzy logic
+        """
+        # Convert to lowercase for case-insensitive matching
+        keyword = keyword.lower().strip()
+        text = text.lower().strip()
+        
+        # Exact match (original behavior)
+        if keyword in text:
+            return True
+        
+        # Word boundary matching - keyword as whole word
+        import re
+        if re.search(r'\b' + re.escape(keyword) + r'\b', text):
+            return True
+        
+        # Handle common speech recognition errors
+        
+        # "back" often gets recognized as "bag", "pack", "beck", etc.
+        if keyword == "back":
+            back_variants = ["bag", "pack", "beck", "bak", "backed", "backing", "bat", "black", "track", "lack", "sack", "rack", "crack", "stack", "attack", "snack", "jack", "hack", "tack", "whack", "smack", "quack", "mac", "tak", "ak", "ack", "bac", "bck"]
+            for variant in back_variants:
+                if variant in text:
+                    return True
+        
+        # Also handle "previous" variants since user mentioned it works
+        if keyword == "previous":
+            previous_variants = ["precious", "previus", "prev", "previously"]
+            for variant in previous_variants:
+                if variant in text:
+                    return True
+        
+        # "next" variants
+        if keyword == "next":
+            next_variants = ["neck", "text", "nest", "nets"]
+            for variant in next_variants:
+                if variant in text:
+                    return True
+        
+        # "stop" variants
+        if keyword == "stop":
+            stop_variants = ["top", "shop", "stopped", "stopping"]
+            for variant in stop_variants:
+                if variant in text:
+                    return True
+        
+        # Partial matching for very short words (2-3 characters)
+        if len(keyword) <= 3:
+            # Check if keyword is at start or end of any word in text
+            words = text.split()
+            for word in words:
+                if word.startswith(keyword) or word.endswith(keyword):
+                    return True
+        
+        # Phonetic similarity for difficult words
+        if keyword == "go":
+            # Single syllable words that sound similar to "go"
+            phonetic_go = ["oh", "so", "no", "low", "bow", "row", "show", "flow", "slow", "know", "throw", "grow", "glow"]
+            for phonetic in phonetic_go:
+                if phonetic in text:
+                    return True
+        
+        if keyword == "back":
+            # Words ending in "-ack" sound
+            phonetic_back = ["sack", "rack", "crack", "stack", "attack", "snack", "jack", "hack", "tack", "whack", "smack", "quack", "track", "pack", "lack", "black"]
+            for phonetic in phonetic_back:
+                if phonetic in text:
+                    return True
+        
+        # Levenshtein distance for very close matches (1-2 character differences)
+        if len(keyword) >= 3:
+            words = text.split()
+            for word in words:
+                if len(word) >= 2 and abs(len(word) - len(keyword)) <= 2:
+                    # Simple character difference check
+                    differences = sum(1 for a, b in zip(keyword, word) if a != b)
+                    if differences <= 1 and len(keyword) == len(word):
+                        return True
+        
+        return False
+    
+    def _schedule_command_execution(self, command: str, keyword: str) -> None:
+        """
+        Schedule command execution after 1.5 second delay.
+        
+        Args:
+            command: Command to execute
+            keyword: The recognized keyword
+        """
+        try:
+            import threading
+            
+            def delayed_execution():
+                import time
+                time.sleep(1.5)  # Wait for overlay to show
+                
+                # Special handling for STOP command
+                if command == 'pause':
+                    # Show STOPPED overlay and pause slideshow
+                    if hasattr(self.controller, 'display_manager') and self.controller.display_manager:
+                        self.controller.display_manager.show_stopped_overlay()
+                    if not self.controller.is_paused:
+                        self.controller.toggle_pause()
+                else:
+                    # For other commands, execute normally
+                    self._execute_command(command)
+                    
+                    # If this is GO command, clear stopped overlay
+                    if command == 'resume':
+                        if hasattr(self.controller, 'display_manager') and self.controller.display_manager:
+                            self.controller.display_manager.clear_stopped_overlay()
+            
+            # Execute in background thread to avoid blocking
+            thread = threading.Thread(target=delayed_execution, daemon=True)
+            thread.start()
+            
+        except Exception as e:
+            self.logger.error(f"Error scheduling command execution: {e}")
+            # Fallback to immediate execution
+            self._execute_command(command)
+    
+    def _execute_command(self, command: str) -> None:
+        """Execute the voice command by calling appropriate controller method."""
         try:
             if command == 'next':
                 self.controller.next_photo()
             elif command == 'back':
                 self.controller.previous_photo()
             elif command == 'pause':
-                if not self.controller.is_paused:
-                    self.controller.toggle_pause()
+                self.controller.toggle_pause()
             elif command == 'resume':
-                if self.controller.is_paused:
-                    self.controller.toggle_pause()
+                self.controller.toggle_pause()
             else:
                 self.logger.warning(f"Unknown command: {command}")
-                
         except Exception as e:
-            self.logger.error(f"Error executing voice command '{command}': {e}")
+            self.logger.error(f"Error executing command '{command}': {e}")
     
-    def is_voice_available(self) -> bool:
+    def _schedule_command_execution(self, command: str, keyword: str) -> None:
         """
-        Check if voice recognition is available and enabled.
+        Schedule command execution after 1.5 second delay.
+        
+        Args:
+            command: Command to execute
+            keyword: The recognized keyword
+        """
+        try:
+            import threading
+            
+            def delayed_execution():
+                import time
+                time.sleep(1.5)  # Wait for overlay to show
+                
+                # Special handling for STOP command
+                if command == 'pause':
+                    # Show STOPPED overlay and pause slideshow
+                    if hasattr(self.controller, 'display_manager') and self.controller.display_manager:
+                        self.controller.display_manager.show_stopped_overlay()
+                    if not self.controller.is_paused:
+                        self.controller.toggle_pause()
+                else:
+                    # For other commands, execute normally
+                    self._execute_command(command)
+                    
+                    # If this is GO command, clear stopped overlay
+                    if command == 'resume':
+                        if hasattr(self.controller, 'display_manager') and self.controller.display_manager:
+                            self.controller.display_manager.clear_stopped_overlay()
+            
+            # Execute in background thread to avoid blocking
+            thread = threading.Thread(target=delayed_execution, daemon=True)
+            thread.start()
+            
+        except Exception as e:
+            self.logger.error(f"Error scheduling command execution: {e}")
+            # Fallback to immediate execution
+            self._execute_command(command)
+    
+    def is_available(self) -> bool:
+        """
+        Check if voice commands are available.
         
         Returns:
             bool: True if voice commands are available, False otherwise

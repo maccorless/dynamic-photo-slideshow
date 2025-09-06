@@ -40,8 +40,20 @@ class SlideshowConfig:
         "download_batch_size": 100,
         "max_year_percentage": 0.3,
         "cache_refresh_check_interval": 3600,
+        "photo_history_cache_size": 100,
         "DEBUG_SCALING": False,
-        "LOGGING_VERBOSE": False
+        "LOGGING_VERBOSE": False,
+        # Voice command settings
+        'voice_commands_enabled': False,
+        'voice_confidence_threshold': 0.3, # Minimum confidence for recognition
+        'voice_command_timeout': 2.0, # Seconds to listen for a command
+        'voice_keywords': {
+            "next": ["next", "forward", "advance", "right"],
+            "back": ["back", "previous", "backward", "left"],
+            "pause": ["stop", "pause", "halt"],
+            "resume": ["blueberry", "start", "resume", "play", "continue"]
+        },
+        "show_countdown_timer": True
     }
     
     # Valid values for validation
@@ -88,7 +100,7 @@ class SlideshowConfig:
     
     def _validate_config_value(self, key: str, value: Any) -> bool:
         """Validate a configuration value."""
-        if key in ["SLIDESHOW_INTERVAL_SECONDS", "slideshow_interval"]:
+        if key == "slideshow_interval":
             return isinstance(value, int) and 1 <= value <= 86400
         elif key == "CACHE_SIZE_LIMIT_GB":
             return isinstance(value, int) and 1 <= value <= 100
@@ -106,7 +118,7 @@ class SlideshowConfig:
             return False
         elif key in ["FORCE_CACHE_REFRESH", "DEBUG_SCALING", "LOGGING_VERBOSE", "portrait_pairing"]:
             return isinstance(value, bool)
-        elif key in ["PHOTOS_ALBUM_NAME", "album_name"]:
+        elif key == "album_name":
             return isinstance(value, str)
         elif key in ["max_photos_limit", "min_people_count", "slideshow_interval", 
                      "CACHE_SIZE_LIMIT_GB", "max_recent_photos", "fallback_photo_limit",

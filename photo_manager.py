@@ -23,14 +23,14 @@ class PhotoManager:
     def __init__(self, config_path_or_dict):
         # Handle both config file path and config dict
         if isinstance(config_path_or_dict, str):
-            from config import Config
-            self.config = Config(config_path_or_dict)
+            from config import SlideshowConfig
+            self.config = SlideshowConfig(config_path_or_dict)
         else:
             self.config = config_path_or_dict
             
         self.logger = logging.getLogger(__name__)
         self.photos_db = None
-        self.album_name = self.config.get('album_name', self.config.get('PHOTOS_ALBUM_NAME', 'photoframe'))
+        self.album_name = self.config.get('album_name', 'photoframe')
         self.photos_cache = []
         self.cache_manager = CacheManager(self.config)
         self.last_cache_check = None
