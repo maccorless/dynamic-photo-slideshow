@@ -43,6 +43,11 @@ class SlideshowConfig:
         "photo_history_cache_size": 100,
         "DEBUG_SCALING": False,
         "LOGGING_VERBOSE": False,
+        # Video playback settings (currently disabled)
+        'video_playback_enabled': False,
+        'video_max_duration': 10, # seconds
+        'video_audio_enabled': False,
+
         # Voice command settings
         'voice_commands_enabled': False,
         'voice_confidence_threshold': 0.3, # Minimum confidence for recognition

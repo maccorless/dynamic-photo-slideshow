@@ -101,6 +101,17 @@ Enable debug scaling information.
 ### `LOGGING_VERBOSE` (boolean, default: false)
 Enable verbose logging output to console and log file.
 
+## Video Playback Configuration
+
+### `video_playback_enabled` (boolean, default: true)
+Enable or disable video playback. If false, videos will be skipped.
+
+### `video_max_duration` (number, default: 10)
+Maximum duration in seconds to play a video before automatically advancing to the next slide.
+
+### `video_audio_enabled` (boolean, default: false)
+Enable or disable audio for video playback.
+
 ## Voice Command Configuration
 
 ### `voice_commands_enabled` (boolean, default: true)

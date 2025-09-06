@@ -96,14 +96,6 @@ class SlideshowController:
             raise
     
     
-    def _is_image_file(self, filename: str) -> bool:
-        """Check if the file is a supported image format."""
-        if not filename:
-            return False
-        
-        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.tif', '.heic', '.heif', '.webp'}
-        file_ext = os.path.splitext(filename.lower())[1]
-        return file_ext in image_extensions
     
     def _check_cache_refresh(self) -> None:
         """Check if it's time to refresh the photo cache and do so if needed."""
@@ -139,8 +131,7 @@ class SlideshowController:
                     photo = self.photo_manager.get_photo_by_index(photo_index)
                     second_photo = self.photo_manager.get_photo_by_index(second_photo_index)
                     
-                    if (photo and self._is_image_file(photo.get('filename', '')) and
-                        second_photo and self._is_image_file(second_photo.get('filename', ''))):
+                    if photo and second_photo:
                         # Valid photo pair from history - display immediately
                         photo_pair = [photo, second_photo]
                         self.current_photo_pair = photo_pair
@@ -169,7 +160,7 @@ class SlideshowController:
                     # Single photo from history
                     photo_index = history_data
                     photo = self.photo_manager.get_photo_by_index(photo_index)
-                    if photo and self._is_image_file(photo.get('filename', '')):
+                    if photo:
                         # Valid photo from history
                         pass
                     else:
@@ -188,7 +179,7 @@ class SlideshowController:
                     photo_index = self.photo_manager.get_random_photo_index()
                     candidate_photo = self.photo_manager.get_photo_by_index(photo_index)
                     
-                    if candidate_photo and self._is_image_file(candidate_photo.get('filename', '')):
+                    if candidate_photo:
                         photo = candidate_photo
                         break
                     attempts += 1
@@ -198,26 +189,9 @@ class SlideshowController:
                 return
             
             # Check if portrait pairing is enabled and this is a portrait photo
-            if (self.config.get('portrait_pairing', True) and 
-                photo.get('orientation') == 'portrait'):
-                
-                # Try to find another portrait photo for pairing
-                second_photo = None
-                pairing_attempts = 0
-                
-                while pairing_attempts < 10 and not second_photo:
-                    second_photo_index = self.photo_manager.get_random_portrait_index()
-                    
-                    if (second_photo_index is not None and 
-                        second_photo_index != photo_index):
-                        candidate_second = self.photo_manager.get_photo_by_index(second_photo_index)
-                        
-                        if (candidate_second and 
-                            self._is_image_file(candidate_second.get('filename', ''))):
-                            second_photo = candidate_second
-                            break
-                    
-                    pairing_attempts += 1
+            if (self.config.get('portrait_pairing', True) and photo.get('orientation') == 'portrait'):
+                # Advanced pairing logic for mixed media
+                second_photo, second_photo_index = self._find_pairing_partner(photo, photo_index)
                 
                 if second_photo:
                     # Display photo pair
@@ -252,7 +226,13 @@ class SlideshowController:
                             coords['latitude'], coords['longitude']
                         )
                     
-                    self.display_manager.display_photo(photo, location_string)
+                    # Display based on media type
+                    if photo['media_type'] in ['video', 'live_photo'] and self.config.get('video_playback_enabled'):
+                        self.display_manager.display_video(photo['path'], self.config.get('video_audio_enabled'))
+                        self.interval = self.config.get('video_max_duration', 10)
+                    else:
+                        self.display_manager.display_photo(photo, location_string)
+                        self.interval = self.config.get('slideshow_interval', 10)
                     
                     # Add single photo to history if this is a new photo (not from history navigation)
                     if self.history_position == -1:
@@ -270,7 +250,13 @@ class SlideshowController:
                         coords['latitude'], coords['longitude']
                     )
                 
-                self.display_manager.display_photo(photo, location_string)
+                # Display based on media type
+                if photo['media_type'] in ['video', 'live_photo'] and self.config.get('video_playback_enabled'):
+                    self.display_manager.display_video(photo['path'], self.config.get('video_audio_enabled'))
+                    self.interval = self.config.get('video_max_duration', 10)
+                else:
+                    self.display_manager.display_photo(photo, location_string)
+                    self.interval = self.config.get('slideshow_interval', 10)
                 
                 # Add single photo to history if this is a new photo (not from history navigation)
                 if self.history_position == -1:
@@ -281,6 +267,28 @@ class SlideshowController:
             
         except Exception as e:
             self.logger.error(f"Error displaying photo: {e}")
+
+    def _find_pairing_partner(self, first_photo: Dict[str, Any], first_photo_index: int) -> (Optional[Dict[str, Any]], Optional[int]):
+        """Find a suitable partner for a portrait photo. Only pairs image files since video playback was removed."""
+        first_media_type = first_photo.get('media_type', 'image')
+        
+        # Only pair image files - skip video files since display manager can't handle them
+        if first_media_type not in ['image']:
+            return None, None
+        
+        partner_photo = None
+        partner_index = None
+
+        # Try to find an image partner for 10 attempts
+        for _ in range(10):
+            partner_index = self.photo_manager.get_random_portrait_image_index()
+            if partner_index is not None and partner_index != first_photo_index:
+                partner_photo = self.photo_manager.get_photo_by_index(partner_index)
+                # Ensure partner is also an image file
+                if partner_photo and partner_photo.get('media_type') == 'image':
+                    return partner_photo, partner_index
+
+        return None, None
     
     def _update_recent_photos(self, photos) -> None:
         """Update the list of recently displayed photos to avoid repetition."""
@@ -425,6 +433,21 @@ class SlideshowController:
         # Start countdown timer display
         self._start_countdown_timer()
     
+    def _start_main_timer_only(self) -> None:
+        """Start only the main auto-advance timer without resetting countdown."""
+        if not self.is_playing:
+            return
+        
+        # Only stop and restart the main timer, leave countdown running
+        if self.timer_thread and self.timer_thread.is_alive():
+            self.timer_thread.cancel()
+            self.timer_thread = None
+        
+        self.last_advance_time = time.time()
+        self.timer_thread = threading.Timer(self.interval, self._auto_advance)
+        self.timer_thread.daemon = True
+        self.timer_thread.start()
+    
     def _stop_timer(self) -> None:
         """Stop auto-advance timer."""
         if self.timer_thread and self.timer_thread.is_alive():
@@ -452,6 +475,7 @@ class SlideshowController:
         was_paused = self.is_paused
         self._navigate_next()
         if not was_paused:
+            # Reset countdown timer AFTER photo change
             self._restart_timer()
         if was_paused:
             self.is_playing = False
@@ -462,14 +486,21 @@ class SlideshowController:
         was_paused = self.is_paused
         self._navigate_previous()
         if not was_paused:
+            # Reset countdown timer AFTER photo change
             self._restart_timer()
         if was_paused:
             self.is_playing = False
             self.is_paused = True
     
     def pause_for_voice_command(self) -> None:
-        """Pause the timer for voice command processing without changing play state."""
-        self._stop_timer()
+        """Pause both timers for voice command processing without changing play state."""
+        # Stop main timer
+        if self.timer_thread and self.timer_thread.is_alive():
+            self.timer_thread.cancel()
+            self.timer_thread = None
+        
+        # Also stop countdown timer to freeze the display
+        self._stop_countdown_timer()
 
     def resume_after_voice_command(self) -> None:
         """Resume the timer after voice command processing if slideshow is playing."""

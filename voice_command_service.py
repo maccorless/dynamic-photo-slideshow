@@ -6,6 +6,7 @@ using simple voice commands: "next", "back", "stop", "go"
 """
 
 import logging
+import re
 import threading
 import time
 from typing import Optional, Callable, Dict, List
@@ -137,17 +138,18 @@ class VoiceCommandService:
             except Exception as e:
                 self.logger.error(f"Error stopping voice listening: {e}")
     
-    def _voice_callback(self, recognizer: sr.Recognizer, audio: sr.AudioData) -> None:
+    def _voice_callback(self, recognizer, audio) -> None:
         """
-        Callback function for processing recognized audio with normalization.
-        It now pauses the slideshow timer during recognition to prevent race conditions.
-        """
-        self.logger.debug("Audio detected, pausing timer and processing command...")
+        Callback function for voice recognition.
         
-        # Pause timer immediately to capture the state at the moment of speech
-        was_playing = self.controller.is_playing
-        if was_playing:
-            self.controller.pause_for_voice_command()
+        Args:
+            recognizer: Speech recognition instance
+            audio: Audio data to process
+        """
+        self.logger.debug("Audio detected, processing for voice commands...")
+        
+        # Store playing state but don't pause immediately - wait to see if it's actually a command
+        self.was_playing_before_command = self.controller.is_playing
         
         if not PYDUB_AVAILABLE:
             self.logger.warning("pydub not available, skipping audio normalization.")
@@ -205,6 +207,9 @@ class VoiceCommandService:
         # Find matching command using simplified approach
         command_found = False
         
+        # Only pause timer if we actually find a valid command
+        paused_for_command = False
+        
         # Try exact word matching with very permissive approach
         text_lower = text.lower().strip()
         words = text_lower.split()
@@ -212,41 +217,53 @@ class VoiceCommandService:
         # Check for exact matches first
         for word in words:
             if word == 'left' or word == 'back' or word == 'previous' or word == 'backward':
+                if not paused_for_command and self.was_playing_before_command:
+                    self.controller.pause_for_voice_command()
+                    paused_for_command = True
                 self.logger.info(f"Voice command recognized: exact word '{word}' -> back (from text: '{text}')")
                 self._show_voice_feedback('previous' if word == 'previous' else 'back')
                 self._schedule_command_execution('back', word)
                 command_found = True
                 break
             elif word == 'right' or word == 'next' or word == 'forward' or word == 'advance':
+                if not paused_for_command and self.was_playing_before_command:
+                    self.controller.pause_for_voice_command()
+                    paused_for_command = True
                 self.logger.info(f"Voice command recognized: exact word '{word}' -> next (from text: '{text}')")
                 self._show_voice_feedback('next')
                 self._schedule_command_execution('next', word)
                 command_found = True
                 break
-            elif word == 'blueberry' or word == 'start' or word == 'resume' or word == 'play' or word == 'continue':
-                self.logger.info(f"Voice command recognized: exact word '{word}' -> resume (from text: '{text}')")
-                self._show_voice_feedback('blueberry')
-                self._schedule_command_execution('resume', word)
-                command_found = True
-                break
             elif word == 'stop' or word == 'pause' or word == 'halt':
+                if not paused_for_command and self.was_playing_before_command:
+                    self.controller.pause_for_voice_command()
+                    paused_for_command = True
                 self.logger.info(f"Voice command recognized: exact word '{word}' -> pause (from text: '{text}')")
                 self._show_voice_feedback('stop')
                 self._schedule_command_execution('pause', word)
                 command_found = True
                 break
+            elif word == 'go' or word == 'play' or word == 'resume' or word == 'start':
+                if not paused_for_command and self.was_playing_before_command:
+                    self.controller.pause_for_voice_command()
+                    paused_for_command = True
+                self.logger.info(f"Voice command recognized: exact word '{word}' -> resume (from text: '{text}')")
+                self._show_voice_feedback('go')
+                self._schedule_command_execution('resume', word)
+                command_found = True
+                break
         
-        # If single letter didn't work, try original fuzzy matching as fallback
+        # If no exact match, try fuzzy matching
         if not command_found:
-            for command, keywords in self.command_keywords.items():
-                for keyword in keywords:
-                    # Use fuzzy matching for better recognition
-                    if self._fuzzy_match(keyword, text):
-                        self.logger.info(f"Voice command recognized: '{keyword}' -> {command} (from text: '{text}')")
-                        # Show visual feedback for recognized command
+            for keyword, command in self.command_keywords.items():
+                for variant in command:
+                    if self._fuzzy_match(variant, text_lower):
+                        if not paused_for_command and self.was_playing_before_command:
+                            self.controller.pause_for_voice_command()
+                            paused_for_command = True
+                        self.logger.info(f"Voice command recognized: fuzzy match '{variant}' -> {keyword} (from text: '{text}')")
                         self._show_voice_feedback(keyword)
-                        # Execute command after 1.5 second delay (after overlay shows)
-                        self._schedule_command_execution(command, keyword)
+                        self._schedule_command_execution(keyword, variant)
                         command_found = True
                         break
                 if command_found:
@@ -255,8 +272,8 @@ class VoiceCommandService:
         if not command_found:
             self.logger.info(f"No matching voice command found for: '{text}'")
         
-        # Resume timer if it was playing before the command
-        if was_playing:
+        # Resume timer if it was playing before the command AND we actually paused it
+        if paused_for_command and self.was_playing_before_command:
             self.controller.resume_after_voice_command()
     
     def _show_voice_feedback(self, keyword: str) -> None:
@@ -293,7 +310,6 @@ class VoiceCommandService:
             return True
         
         # Word boundary matching - keyword as whole word
-        import re
         if re.search(r'\b' + re.escape(keyword) + r'\b', text):
             return True
         
@@ -371,10 +387,7 @@ class VoiceCommandService:
             keyword: The recognized keyword
         """
         try:
-            import threading
-            
             def delayed_execution():
-                import time
                 time.sleep(1.5)  # Wait for overlay to show
                 
                 # Special handling for STOP command
@@ -417,46 +430,6 @@ class VoiceCommandService:
                 self.logger.warning(f"Unknown command: {command}")
         except Exception as e:
             self.logger.error(f"Error executing command '{command}': {e}")
-    
-    def _schedule_command_execution(self, command: str, keyword: str) -> None:
-        """
-        Schedule command execution after 1.5 second delay.
-        
-        Args:
-            command: Command to execute
-            keyword: The recognized keyword
-        """
-        try:
-            import threading
-            
-            def delayed_execution():
-                import time
-                time.sleep(1.5)  # Wait for overlay to show
-                
-                # Special handling for STOP command
-                if command == 'pause':
-                    # Show STOPPED overlay and pause slideshow
-                    if hasattr(self.controller, 'display_manager') and self.controller.display_manager:
-                        self.controller.display_manager.show_stopped_overlay()
-                    if not self.controller.is_paused:
-                        self.controller.toggle_pause()
-                else:
-                    # For other commands, execute normally
-                    self._execute_command(command)
-                    
-                    # If this is GO command, clear stopped overlay
-                    if command == 'resume':
-                        if hasattr(self.controller, 'display_manager') and self.controller.display_manager:
-                            self.controller.display_manager.clear_stopped_overlay()
-            
-            # Execute in background thread to avoid blocking
-            thread = threading.Thread(target=delayed_execution, daemon=True)
-            thread.start()
-            
-        except Exception as e:
-            self.logger.error(f"Error scheduling command execution: {e}")
-            # Fallback to immediate execution
-            self._execute_command(command)
     
     def is_available(self) -> bool:
         """

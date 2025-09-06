@@ -47,8 +47,7 @@ class PhotoManager:
             return True
         except Exception as e:
             self.logger.error(f"Failed to connect to Photos library: {e}")
-            print(f"Error: Could not connect to Photos library: {e}")
-            print("Make sure Photos is installed and accessible.")
+            self.logger.error("Make sure Photos is installed and accessible.")
             return False
     
     def verify_album(self) -> bool:
@@ -171,7 +170,6 @@ class PhotoManager:
                             # Fallback to shuffled photos from entire library
                             all_photos = list(self.photos_db.photos())
                             if self.config.get('shuffle_photos', True):
-                                import random
                                 random.shuffle(all_photos)
                                 self.logger.info("Fallback photos shuffled for random selection")
                             photos_to_process = all_photos[:self.config.get('fallback_photo_limit')]
@@ -186,7 +184,6 @@ class PhotoManager:
                         # Fallback to shuffled photos from entire library
                         all_photos = list(self.photos_db.photos())
                         if self.config.get('shuffle_photos', True):
-                            import random
                             random.shuffle(all_photos)
                             self.logger.info("Fallback photos shuffled for random selection")
                         photos_to_process = all_photos[:self.config.get('min_fallback_photos')]
@@ -201,7 +198,6 @@ class PhotoManager:
                     # Final fallback with shuffle
                     all_photos = list(self.photos_db.photos())
                     if self.config.get('shuffle_photos', True):
-                        import random
                         random.shuffle(all_photos)
                         self.logger.info("Final fallback photos shuffled for random selection")
                     photos_to_process = all_photos[:self.config.get('min_fallback_photos')]
@@ -285,7 +281,6 @@ class PhotoManager:
             
             # Use all available photos - no need to limit since they're all locally cached
             if self.config.get('shuffle_photos', True):
-                import random
                 random.shuffle(photos)
                 self.logger.info(f"Using all {len(photos)} photos in random order")
             
@@ -369,10 +364,17 @@ class PhotoManager:
     def _extract_photo_metadata(self, photo) -> Optional[Dict[str, Any]]:
         """Extract metadata from a photo object."""
         try:
-            # Skip hidden photos at display time (primary filtering)
-            if hasattr(photo, 'hidden') and photo.hidden:
+            # Skip hidden photos and RAW images
+            if photo.hidden or photo.has_raw:
                 return None
-                
+
+            # Determine media type
+            media_type = 'image'
+            if photo.ismovie:
+                media_type = 'video'
+            elif photo.live_photo:
+                media_type = 'live_photo'
+
             # Get basic photo information with error handling
             photo_date = getattr(photo, 'date', None)
             date_str = None
@@ -381,45 +383,35 @@ class PhotoManager:
                     date_str = photo_date.isoformat()
                 except:
                     date_str = str(photo_date)
-            
-            
+
             photo_data = {
-                'uuid': getattr(photo, 'uuid', 'unknown'),
-                'filename': getattr(photo, 'filename', 'unknown.jpg'),
-                'path': getattr(photo, 'path', ''),
+                'uuid': photo.uuid,
+                'filename': photo.filename,
+                'path': photo.path,
+                'media_type': media_type,
                 'date_taken': photo_date,
-                'date': date_str,  # Add formatted date string
-                'width': getattr(photo, 'width', 1920),
-                'height': getattr(photo, 'height', 1080),
-                'orientation': 'landscape',
-                'exif_orientation': 1
+                'date': date_str,
+                'width': photo.width,
+                'height': photo.height,
+                'orientation': 'landscape', # default
+                'exif_orientation': 1 # default
             }
-            
+
             # Try to get EXIF orientation from osxphotos
             try:
                 if hasattr(photo, 'exif_info') and photo.exif_info:
-                    # Try different ways to access EXIF orientation
                     exif_info = photo.exif_info
                     if hasattr(exif_info, 'orientation'):
                         photo_data['exif_orientation'] = exif_info.orientation
                     elif hasattr(exif_info, 'get'):
                         photo_data['exif_orientation'] = exif_info.get('Orientation', 1)
-                    elif 'Orientation' in str(exif_info):
-                        # Fallback: try to parse orientation from string representation
-                        try:
-                            import re
-                            match = re.search(r'Orientation[\'"]?\s*:\s*(\d+)', str(exif_info))
-                            if match:
-                                photo_data['exif_orientation'] = int(match.group(1))
-                        except:
-                            pass
             except Exception as e:
                 self.logger.debug(f"Could not extract EXIF orientation: {e}")
-            
+
             # Determine orientation safely
             if photo_data['width'] and photo_data['height']:
                 photo_data['orientation'] = self._determine_orientation(photo_data['width'], photo_data['height'])
-            
+
             # Extract GPS coordinates if available
             try:
                 if hasattr(photo, 'location') and photo.location:
@@ -429,14 +421,14 @@ class PhotoManager:
                     }
             except Exception:
                 pass  # GPS not available
-            
+
             # Skip photos without valid paths
             if not photo_data['path'] or photo_data['path'] == '':
-                self.logger.info(f"Rejecting photo due to missing path: {photo_data.get('filename', 'unknown')}")
+                self.logger.debug(f"Rejecting photo due to missing path: {photo_data.get('filename', 'unknown')}")
                 return None
-                
+
             return photo_data
-            
+
         except Exception as e:
             self.logger.warning(f"Error extracting metadata for photo: {e}")
             return None
@@ -468,13 +460,25 @@ class PhotoManager:
             return 0
         return random.randint(0, len(self.photos_cache) - 1)
     
-    def get_random_portrait_index(self) -> Optional[int]:
-        """Get a random portrait photo index, or None if no portraits available."""
-        portrait_indices = [i for i, photo in enumerate(self.photos_cache) 
-                          if photo.get('orientation') == 'portrait']
+    def _get_random_portrait_index_by_type(self, media_types: List[str]) -> Optional[int]:
+        """Get a random portrait index for a specific media type."""
+        portrait_indices = [i for i, photo in enumerate(self.photos_cache)
+                          if photo.get('orientation') == 'portrait' and photo.get('media_type') in media_types]
         if not portrait_indices:
             return None
         return random.choice(portrait_indices)
+
+    def get_random_portrait_image_index(self) -> Optional[int]:
+        """Get a random portrait image index."""
+        return self._get_random_portrait_index_by_type(['image'])
+
+    def get_random_portrait_video_index(self) -> Optional[int]:
+        """Get a random portrait video or live photo index."""
+        return self._get_random_portrait_index_by_type(['video', 'live_photo'])
+
+    def get_random_portrait_index(self) -> Optional[int]:
+        """Get a random portrait photo index, or None if no portraits available."""
+        return self._get_random_portrait_index_by_type(['image', 'video', 'live_photo'])
     
     def check_and_load_new_photos(self) -> bool:
         """Check for new photos and load them incrementally. Returns True if new photos were loaded."""

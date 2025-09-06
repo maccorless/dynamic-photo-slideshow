@@ -4,11 +4,11 @@ Handles fullscreen display, image rendering, and overlay positioning.
 """
 
 import tkinter as tk
-from tkinter import ttk
 import logging
-from PIL import Image, ImageTk, ImageDraw, ImageFont
-from typing import Dict, Any, Optional, Tuple, List
 import os
+from typing import Dict, Any, Optional, List
+
+from PIL import Image, ImageTk, ImageDraw, ImageFont
 
 # Enable HEIC support
 try:
@@ -17,24 +17,24 @@ try:
 except ImportError:
     pass
 
-
 class DisplayManager:
     """Manages fullscreen display and image rendering."""
-    
+
     def __init__(self, config):
         self.config = config
         self.logger = logging.getLogger(__name__)
         self.root = None
-        self.canvas = None
         self.screen_width = 0
         self.screen_height = 0
+        self.canvas = None
         self.current_image_id = None
-        self.overlay_font = None
-        self.stopped_overlay_id = None
+        self.overlay_labels = []
         self.countdown_overlay_id = None
+        self.stopped_overlay_id = None
+        self.controller_ref = None
         
         self._setup_display()
-    
+
     def _setup_display(self) -> None:
         """Setup fullscreen tkinter display."""
         self.root = tk.Tk()
@@ -72,51 +72,40 @@ class DisplayManager:
         self.canvas.pack(fill=tk.BOTH, expand=True)
         
         self.logger.info(f"Display initialized: {self.screen_width}x{self.screen_height}")
-    
-    def display_photo(self, photo_data: Dict[str, Any], location_string: Optional[str] = None) -> None:
-        """Display a photo with overlays."""
+
+    def display_photo(self, photo_data, location_string: Optional[str] = None) -> None:
+        """Display a photo or a pair of photos."""
         try:
-            # Check if this is a paired display
             if isinstance(photo_data, list) and len(photo_data) == 2:
                 self._display_paired_photos(photo_data, location_string)
             else:
                 self._display_single_photo(photo_data, location_string)
-                
         except Exception as e:
-            self.logger.error(f"Error displaying photo: {e}")
-    
-    def _display_single_photo(self, photo_data: Dict[str, Any], location_string: Optional[str] = None) -> None:
+            self.logger.error(f"Error in display_photo: {e}")
+
+    def _display_single_photo(self, photo_data: Dict[str, Any], location_string: Optional[str]) -> None:
         """Display a single photo with overlays."""
         try:
-            # Load and process image
-            image_path = photo_data['path']
-            if not os.path.exists(image_path):
-                self.logger.error(f"Image file not found: {image_path}")
-                return
-            
-            # Load image
-            image = Image.open(image_path)
-            
-            # Apply orientation correction
-            image = self._apply_orientation_correction(image, photo_data.get('exif_orientation', 1))
-            
-            # Resize image to fit screen while maintaining aspect ratio
-            display_image = self._resize_image_to_fit(image)
-            
-            # Convert to PhotoImage for tkinter
-            photo_image = ImageTk.PhotoImage(display_image)
-            
-            # Clear canvas and display image (preserve overlays)
+            # Clear previous display
             self._clear_canvas_preserve_overlays()
+            
+            image_path = photo_data.get('path')
+            if not image_path or not os.path.exists(image_path):
+                self._display_error_message(f"File not found:\n{os.path.basename(image_path)}")
+                return
+
+            # Load and process image
+            image = Image.open(image_path)
+            image = self._apply_orientation_correction(image, photo_data.get('exif_orientation', 1))
+            display_image = self._resize_image_to_fit(image)
+            photo_image = ImageTk.PhotoImage(display_image)
             
             # Center image on canvas
             x = (self.screen_width - display_image.width) // 2
             y = (self.screen_height - display_image.height) // 2
             
             self.current_image_id = self.canvas.create_image(x, y, anchor=tk.NW, image=photo_image)
-            
-            # Keep reference to prevent garbage collection
-            self.canvas.image = photo_image
+            self.canvas.image = photo_image  # Keep a reference
             
             # Add overlays
             self._add_overlays(photo_data, location_string, x, y, display_image.width, display_image.height)
@@ -131,102 +120,93 @@ class DisplayManager:
             self.logger.error(f"Error displaying single photo: {e}")
             # Display error message instead of black screen
             self._display_error_message(f"Cannot load image: {os.path.basename(photo_data.get('path', 'Unknown'))}")
-    
-    def _display_paired_photos(self, photo_pair: List[Dict[str, Any]], location_string: Optional[str] = None) -> None:
-        """Display two portrait photos side by side."""
+
+    def _display_paired_photos(self, photo_pair: List[Dict[str, Any]], location_string: Optional[str]) -> None:
+        """Display two portrait photos side-by-side."""
         try:
-            # Clear canvas (preserve overlays)
+            # Clear previous display
             self._clear_canvas_preserve_overlays()
             
+            # Calculate dimensions for each photo (half screen width)
+            target_width = self.screen_width // 2
+            target_height = self.screen_height
+            
             images = []
+            for i, photo_data in enumerate(photo_pair):
+                image_path = photo_data.get('path')
+                if not image_path or not os.path.exists(image_path):
+                    # Create error placeholder
+                    error_img = self._create_error_image("Image not found")
+                    images.append((error_img, photo_data))
+                    continue
+                
+                try:
+                    # Load and process image
+                    image = Image.open(image_path)
+                    image = self._apply_orientation_correction(image, photo_data.get('exif_orientation', 1))
+                    
+                    # Scale to fit half screen
+                    img_width, img_height = image.size
+                    aspect_ratio = img_width / img_height
+                    
+                    if target_width / aspect_ratio <= target_height:
+                        new_width = target_width
+                        new_height = int(new_width / aspect_ratio)
+                    else:
+                        new_height = target_height
+                        new_width = int(new_height * aspect_ratio)
+                    
+                    display_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                    images.append((display_image, photo_data))
+                    
+                except Exception as e:
+                    self.logger.error(f"Error processing paired photo {i}: {e}")
+                    error_img = self._create_error_image("Error loading image")
+                    images.append((error_img, photo_data))
+            
+            # Display images side by side
             photo_images = []
-            
-            # Load and process both images
-            for photo_data in photo_pair:
-                image_path = photo_data['path']
-                if not os.path.exists(image_path):
-                    self.logger.error(f"Image file not found: {image_path}")
-                    return
-                
-                # Load image
-                image = Image.open(image_path)
-                
-                # Apply orientation correction
-                image = self._apply_orientation_correction(image, photo_data.get('exif_orientation', 1))
-                images.append(image)
-            
-            # Calculate sizing for side-by-side display
-            # Each image gets half the screen width minus a small gap
-            gap = 20
-            available_width = (self.screen_width - gap) // 2
-            available_height = self.screen_height
-            
-            display_images = []
-            for image in images:
-                # Resize each image to fit in half screen
-                img_width, img_height = image.size
-                scale_x = available_width / img_width
-                scale_y = available_height / img_height
-                scale = min(scale_x, scale_y)
-                
-                new_width = int(img_width * scale)
-                new_height = int(img_height * scale)
-                
-                display_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                display_images.append(display_image)
-                
-                # Convert to PhotoImage
+            for i, (display_image, photo_data) in enumerate(images):
                 photo_image = ImageTk.PhotoImage(display_image)
                 photo_images.append(photo_image)
-            
-            # Position images side by side
-            left_x = (available_width - display_images[0].width) // 2
-            right_x = available_width + gap + (available_width - display_images[1].width) // 2
-            
-            left_y = (self.screen_height - display_images[0].height) // 2
-            right_y = (self.screen_height - display_images[1].height) // 2
-            
-            # Display both images
-            self.canvas.create_image(left_x, left_y, anchor=tk.NW, image=photo_images[0])
-            self.canvas.create_image(right_x, right_y, anchor=tk.NW, image=photo_images[1])
+                
+                # Position: left image at x=0, right image at x=screen_width//2
+                x_offset = i * (self.screen_width // 2)
+                x = x_offset + (target_width - display_image.width) // 2
+                y = (self.screen_height - display_image.height) // 2
+                
+                self.canvas.create_image(x, y, anchor=tk.NW, image=photo_image)
+                
+                # Add overlays for each photo
+                if i == 0:
+                    # Use provided location string for first photo
+                    self._add_overlays(photo_data, location_string, x, y, display_image.width, display_image.height)
+                else:
+                    # Get location for second photo if available
+                    loc_str_2 = None
+                    if 'gps_coordinates' in photo_data:
+                        try:
+                            coords = photo_data['gps_coordinates']
+                            if hasattr(self, 'controller_ref') and self.controller_ref and hasattr(self.controller_ref, 'location_service'):
+                                loc_str_2 = self.controller_ref.location_service.get_location_string(coords['latitude'], coords['longitude'])
+                        except Exception as e:
+                            self.logger.warning(f"Could not get location for second photo: {e}")
+                    
+                    self._add_overlays(photo_data, loc_str_2, x, y, display_image.width, display_image.height)
             
             # Keep references to prevent garbage collection
-            self.canvas.image_left = photo_images[0]
-            self.canvas.image_right = photo_images[1]
-            
-            # Add overlays for both photos
-            self._add_overlays(photo_pair[0], location_string, left_x, left_y, 
-                             display_images[0].width, display_images[0].height)
-            
-            # Get location for second photo if available
-            location_string_2 = None
-            if 'gps_coordinates' in photo_pair[1]:
-                coords = photo_pair[1]['gps_coordinates']
-                try:
-                    # Use same location service as slideshow controller
-                    from location_service import LocationService
-                    location_service = LocationService(self.config)
-                    location_string_2 = location_service.get_location_string(
-                        coords['latitude'], coords['longitude']
-                    )
-                except Exception as e:
-                    self.logger.debug(f"Error getting location for second photo: {e}")
-                    location_string_2 = None
-            
-            self._add_overlays(photo_pair[1], location_string_2, right_x, right_y, 
-                             display_images[1].width, display_images[1].height)
+            self.canvas.images = photo_images
             
             # Update display
             self.root.update()
             
-            # Show STOPPED overlay AFTER image is displayed if slideshow is paused
+            # Show STOPPED overlay AFTER images are displayed if slideshow is paused
             self._refresh_stopped_overlay()
             
         except Exception as e:
             self.logger.error(f"Error displaying paired photos: {e}")
-            # Display error message instead of black screen
-            self._display_error_message(f"Cannot load photo pair images: {os.path.basename(photo_pair[0].get('path', 'Unknown'))}")
-    
+            self._display_error_message(f"Cannot load photo pair")
+
     def _apply_orientation_correction(self, image: Image.Image, orientation: int) -> Image.Image:
         """Apply EXIF orientation correction."""
         try:
@@ -277,6 +257,17 @@ class DisplayManager:
         # Resize image
         return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
     
+    def _create_error_image(self, message: str) -> Image.Image:
+        """Create a placeholder error image."""
+        error_img = Image.new('RGB', (self.screen_width // 4, self.screen_height // 2), color='black')
+        draw = ImageDraw.Draw(error_img)
+        try:
+            font = ImageFont.truetype("Helvetica.ttc", 24)
+        except OSError:
+            font = ImageFont.load_default()
+        draw.text((10, 10), message, fill='red', font=font)
+        return error_img
+
     def _display_error_message(self, message: str) -> None:
         """Display an error message instead of a black screen."""
         try:
@@ -284,26 +275,25 @@ class DisplayManager:
             self._clear_canvas_preserve_overlays()
             
             # Create a simple error display
-            self.canvas.configure(bg='black')
+            font_size = 24
+            text_x = self.screen_width // 2
+            text_y = self.screen_height // 2
             
-            # Display error message in center of screen
             self.canvas.create_text(
-                self.screen_width // 2, 
-                self.screen_height // 2,
+                text_x, text_y,
                 text=message,
+                font=('Arial', font_size),
                 fill='white',
-                font=('Arial', 24),
-                anchor='center'
+                anchor=tk.CENTER
             )
             
             # Add a smaller subtitle
             self.canvas.create_text(
-                self.screen_width // 2, 
-                self.screen_height // 2 + 50,
+                text_x, text_y + 40,
                 text="Skipping to next photo in 3 seconds...",
-                fill='gray',
                 font=('Arial', 16),
-                anchor='center'
+                fill='gray',
+                anchor=tk.CENTER
             )
             
             self.root.update()
@@ -312,7 +302,7 @@ class DisplayManager:
             self.logger.error(f"Error displaying error message: {e}")
 
     def _add_overlays(self, photo_data: Dict[str, Any], location_string: Optional[str], 
-                     x: int, y: int, image_width: int, image_height: int) -> None:
+                     x: int, y: int, width: int, height: int) -> None:
         """Add date and location overlays to the displayed image."""
         try:
             overlay_texts = []
@@ -340,15 +330,9 @@ class DisplayManager:
             font_size = 36
             
             # Calculate optimal font size to fit within image width
-            font_size = self._calculate_optimal_font_size(overlay_text, font_size, image_width)
+            font_size = self._calculate_optimal_font_size(overlay_text, font_size, width)
             
-            try:
-                font = ImageFont.truetype("Arial", font_size)
-            except OSError:
-                # Fallback to default font
-                font = ImageFont.load_default()
-            
-            # Get text dimensions using canvas textsize method for accuracy
+            # Get text dimensions
             temp_text = self.canvas.create_text(0, 0, text=overlay_text, font=('Arial', font_size))
             bbox = self.canvas.bbox(temp_text)
             self.canvas.delete(temp_text)
@@ -356,35 +340,39 @@ class DisplayManager:
             text_width = bbox[2] - bbox[0]
             text_height = bbox[3] - bbox[1]
             
-            # Calculate centered position based on alignment
-            if alignment == 'LEFT':
-                text_x = x + 20
-            elif alignment == 'RIGHT':
-                text_x = x + image_width - text_width - 20
-            else:  # CENTER
-                text_x = x + (image_width - text_width) // 2
-            
-            if placement == 'TOP':
-                text_y = y + 20
-            else:  # BOTTOM
-                text_y = y + image_height - text_height - 20
-            
             # Create background sized exactly to text dimensions
             padding = 8
-            bg_x1 = text_x - padding
-            bg_y1 = text_y - padding
-            bg_x2 = text_x + text_width + padding
-            bg_y2 = text_y + text_height + padding
             
-            # Draw solid white background with proper sizing
+            # Calculate background dimensions first
+            bg_width = text_width + 2 * padding
+            bg_height = text_height + 2 * padding
+            
+            # Determine background position based on overlay type and alignment
+            if placement == 'TOP':
+                bg_y = y + 20
+            else:  # BOTTOM
+                bg_y = y + height - bg_height - 20
+            
+            if alignment == 'LEFT':
+                bg_x = x + 20
+            elif alignment == 'RIGHT':
+                bg_x = x + width - bg_width - 20
+            else:  # CENTER
+                bg_x = x + (width - bg_width) // 2
+            
+            # Draw solid white background
             self.canvas.create_rectangle(
-                bg_x1, bg_y1, bg_x2, bg_y2,
+                bg_x, bg_y, bg_x + bg_width, bg_y + bg_height,
                 fill='white', outline='', width=0
             )
             
+            # Position text at the center of the background
+            text_x = bg_x + bg_width // 2
+            text_y = bg_y + bg_height // 2
+            
             # Draw text centered on the background
             self.canvas.create_text(
-                text_x + text_width // 2, text_y + text_height // 2,
+                text_x, text_y,
                 text=overlay_text,
                 font=('Arial', font_size),
                 fill='black',
@@ -442,8 +430,19 @@ class DisplayManager:
                 anchor=tk.N
             )
             
-            # Remove after 3 seconds
-            self.root.after(3000, lambda: self.canvas.delete(overlay_id))
+            # Safe deletion that won't affect countdown timer
+            def safe_delete_filename_overlay():
+                try:
+                    # Only delete if the overlay still exists and isn't the countdown timer
+                    if (overlay_id in self.canvas.find_all() and 
+                        overlay_id != getattr(self, 'countdown_overlay_id', None) and
+                        overlay_id != getattr(self, 'stopped_overlay_id', None)):
+                        self.canvas.delete(overlay_id)
+                except Exception as e:
+                    self.logger.debug(f"Error deleting filename overlay: {e}")
+            
+            # Remove after 3 seconds using safe deletion
+            self.root.after(3000, safe_delete_filename_overlay)
             
         except Exception as e:
             self.logger.error(f"Error showing filename overlay: {e}")
@@ -465,8 +464,19 @@ class DisplayManager:
                 anchor=tk.S
             )
             
-            # Remove after 1.5 seconds
-            self.root.after(1500, lambda: self.canvas.delete(overlay_id))
+            # Safe deletion that won't affect countdown timer
+            def safe_delete_voice_overlay():
+                try:
+                    # Only delete if the overlay still exists and isn't the countdown timer
+                    if (overlay_id in self.canvas.find_all() and 
+                        overlay_id != getattr(self, 'countdown_overlay_id', None) and
+                        overlay_id != getattr(self, 'stopped_overlay_id', None)):
+                        self.canvas.delete(overlay_id)
+                except Exception as e:
+                    self.logger.debug(f"Error deleting voice overlay: {e}")
+            
+            # Remove after 1.5 seconds using safe deletion
+            self.root.after(1500, safe_delete_voice_overlay)
             
         except Exception as e:
             self.logger.error(f"Error showing voice command overlay: {e}")
@@ -504,18 +514,45 @@ class DisplayManager:
             self.logger.error(f"Error clearing stopped overlay: {e}")
     
     def _clear_canvas_preserve_overlays(self) -> None:
-        """Clear canvas completely - overlays will be recreated after image display."""
+        """Clear canvas but preserve countdown timer by using tags."""
         try:
-            # Clear entire canvas - no preservation needed
-            self.canvas.delete("all")
+            # Clear only image-related items, not persistent overlays
+            if hasattr(self, 'current_image_id') and self.current_image_id:
+                self.canvas.delete(self.current_image_id)
+                self.current_image_id = None
+            
+            # Clear all items except countdown timer and stopped overlay
+            all_items = self.canvas.find_all()
+            for item in all_items:
+                # Keep countdown timer and stopped overlay
+                if (hasattr(self, 'countdown_overlay_id') and item == self.countdown_overlay_id):
+                    continue
+                if (hasattr(self, 'stopped_overlay_id') and item == self.stopped_overlay_id):
+                    continue
+                # Delete everything else (images, overlays, backgrounds)
+                self.canvas.delete(item)
+            
+            # Reset only the image ID, keep overlay IDs intact
             self.current_image_id = None
-            self.stopped_overlay_id = None
-            self.countdown_overlay_id = None
                 
         except Exception as e:
             self.logger.error(f"Error clearing canvas: {e}")
-            # Fallback to regular clear
-            self.canvas.delete("all")
+            # Fallback to clearing everything except countdown
+            try:
+                countdown_id = getattr(self, 'countdown_overlay_id', None)
+                stopped_id = getattr(self, 'stopped_overlay_id', None)
+                self.canvas.delete("all")
+                self.current_image_id = None
+                # Reset overlay IDs if they were cleared
+                if countdown_id and countdown_id not in self.canvas.find_all():
+                    self.countdown_overlay_id = None
+                if stopped_id and stopped_id not in self.canvas.find_all():
+                    self.stopped_overlay_id = None
+            except:
+                self.canvas.delete("all")
+                self.current_image_id = None
+                self.countdown_overlay_id = None
+                self.stopped_overlay_id = None
     
     def update_countdown_timer(self, seconds_remaining: int) -> None:
         """Update countdown timer display in lower right corner."""
@@ -597,6 +634,14 @@ class DisplayManager:
         except Exception as e:
             self.logger.error(f"Error in event loop: {e}")
             raise
+    
+    def clear_overlays(self) -> None:
+        """Clear all overlay elements."""
+        try:
+            self.clear_stopped_overlay()
+            self.clear_countdown_timer()
+        except Exception as e:
+            self.logger.error(f"Error clearing overlays: {e}")
     
     def destroy(self) -> None:
         """Clean up display resources."""

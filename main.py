@@ -5,11 +5,8 @@ A fullscreen photo slideshow that connects to Apple Photos with intelligent layo
 """
 
 import sys
-import os
-import json
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any
 
 from config import SlideshowConfig
 from photo_manager import PhotoManager
@@ -50,15 +47,15 @@ def main() -> None:
         # 3. Verify configured album exists
         album_name = config.get('album_name', 'photoframe')
         if not photo_manager.verify_album():
-            print(f"Error: Album '{album_name}' not found in Photos library.")
-            print("Please create this album in Photos or update the configuration file.")
+            logger.error(f"Album '{album_name}' not found in Photos library.")
+            logger.error("Please create this album in Photos or update the configuration file.")
             return
         
         # 4. Load initial batch of photos with orientation detection
         photos = photo_manager.load_photos()
         if not photos:
-            print(f"Error: No photos found in album '{album_name}'.")
-            print("Please add photos to this album in Photos.")
+            logger.error(f"No photos found in album '{album_name}'.")
+            logger.error("Please add photos to this album in Photos.")
             return
         
         logger.info(f"Loaded {len(photos)} photos from album '{album_name}'")
@@ -67,16 +64,15 @@ def main() -> None:
         display_manager = DisplayManager(config)
         controller = SlideshowController(config, photo_manager, display_manager)
         
-        print(f"Starting slideshow with {len(photos)} photos...")
-        print("Controls: Spacebar (pause/play), Arrow keys (prev/next), Shift (show filename), Escape (exit)")
+        logger.info(f"Starting slideshow with {len(photos)} photos...")
+        logger.info("Controls: Spacebar (pause/play), Arrow keys (prev/next), Shift (show filename), Escape (exit)")
         
         controller.start_slideshow()
         
     except KeyboardInterrupt:
-        print("\nSlideshow stopped by user.")
+        logger.info("Slideshow stopped by user.")
     except Exception as e:
-        logging.error(f"Fatal error: {e}")
-        print(f"Fatal error: {e}")
+        logger.error(f"Fatal error: {e}")
         sys.exit(1)
 
 

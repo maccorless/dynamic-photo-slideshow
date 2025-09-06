@@ -47,6 +47,17 @@ pillow-heif>=0.13.0
 - **Version**: 0.13.0 or later
 - **Features Used**: Modern iPhone photo format compatibility
 
+#### python-vlc
+- **Purpose**: Video playback functionality
+- **Version**: 3.0 or later
+- **Features Used**: Embedding video into the tkinter display window
+- **System Dependency**: This library is a wrapper and requires the full **VLC media player** application to be installed.
+  - **Recommended Installation (macOS with Homebrew):**
+    ```bash
+    brew install vlc
+    ```
+  - **Alternative:** Download and install from the [official VLC website](https://www.videolan.org/vlc/). Make sure to install it in the standard `/Applications` folder.
+
 ### System Libraries
 - **tkinter**: GUI framework (included with Python on macOS)
 - **threading**: Multi-threading support (Python standard library)
