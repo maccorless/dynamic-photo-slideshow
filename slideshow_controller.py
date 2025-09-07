@@ -226,14 +226,29 @@ class SlideshowController:
     
     def _display_photo_pair(self, photo: Dict[str, Any], photo_index: int, 
                            second_photo: Dict[str, Any], second_photo_index: int, photo_count: int) -> None:
-        """Display a pair of photos."""
+        """Display a pair of photos/videos with mixed content support."""
         photo_pair = [photo, second_photo]
         self.current_photo_pair = photo_pair
         
         self.logger.info(f"Displaying photo pair: {photo['filename']}, {second_photo['filename']} ({photo_index+1}, {second_photo_index+1} of {photo_count})")
         
-        location_string = self._get_location_string(photo)
-        self.display_manager.display_photo(photo_pair, location_string)
+        # Check if either item is a video - if so, display individually
+        first_is_video = self._is_video_content(photo)
+        second_is_video = self._is_video_content(second_photo)
+        
+        if first_is_video or second_is_video:
+            # Display videos individually to ensure proper playback
+            if first_is_video:
+                self.logger.info(f"First item is video, displaying individually: {photo['filename']}")
+                self._display_single_photo(photo, photo_index, photo_count)
+            else:
+                self.logger.info(f"Second item is video, displaying individually: {second_photo['filename']}")
+                self._display_single_photo(second_photo, second_photo_index, photo_count)
+        else:
+            # Both are images, display as pair
+            location_string = self._get_location_string(photo)
+            self.display_manager.display_photo(photo_pair, location_string)
+        
         self._update_recent_photos([photo, second_photo])
         
         if self.history_position == -1:
@@ -382,23 +397,23 @@ class SlideshowController:
         )
 
     def _find_pairing_partner(self, first_photo: Dict[str, Any], first_photo_index: int) -> (Optional[Dict[str, Any]], Optional[int]):
-        """Find a suitable partner for a portrait photo. Only pairs image files since video playback was removed."""
+        """Find a suitable partner for a portrait photo. Supports mixed photo/video pairing."""
         first_media_type = first_photo.get('media_type', 'image')
         
-        # Only pair image files - skip video files since display manager can't handle them
-        if first_media_type not in ['image']:
+        # Allow pairing for both images and videos
+        if first_media_type not in ['image', 'video']:
             return None, None
         
         partner_photo = None
         partner_index = None
 
-        # Try to find an image partner for 10 attempts
+        # Try to find a partner (image or video) for 10 attempts
         for _ in range(10):
             partner_index = self.photo_manager.get_random_portrait_image_index()
             if partner_index is not None and partner_index != first_photo_index:
                 partner_photo = self.photo_manager.get_photo_by_index(partner_index)
-                # Ensure partner is also an image file
-                if partner_photo and partner_photo.get('media_type') == 'image':
+                # Accept both image and video partners
+                if partner_photo and partner_photo.get('media_type') in ['image', 'video']:
                     return partner_photo, partner_index
 
         return None, None
