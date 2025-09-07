@@ -45,10 +45,14 @@ class SlideshowConfig:
         "photo_history_cache_size": 100,
         "DEBUG_SCALING": False,
         "LOGGING_VERBOSE": False,
-        # Video playback settings (currently disabled)
-        'video_playback_enabled': False,
-        'video_max_duration': 10, # seconds
-        'video_audio_enabled': False,
+        # Video playback settings for v3.0
+        'video_playback_enabled': True,
+        'video_max_duration': 30, # seconds - maximum video length to play
+        'video_audio_enabled': True, # Enable audio playback for videos
+        'video_auto_play': True, # Automatically play videos in slideshow
+        'video_loop': False, # Loop videos if shorter than slideshow interval
+        'video_thumbnail_enabled': True, # Generate thumbnails for videos
+        'video_formats_supported': ['.mp4', '.mov', '.avi', '.mkv', '.wmv'], # Supported formats
 
         # Voice command settings
         'voice_commands_enabled': False,

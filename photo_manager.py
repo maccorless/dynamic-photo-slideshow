@@ -1,6 +1,6 @@
 """
-Photo management for Dynamic Photo Slideshow.
-Handles Apple Photos integration, album verification, and photo loading.
+Photo and Video management for Dynamic Photo Slideshow v3.0.
+Handles Apple Photos integration, album verification, photo loading, and video detection.
 """
 
 import logging
@@ -18,12 +18,13 @@ from cache_manager import CacheManager
 from path_config import PathConfig
 from slideshow_exceptions import (
     PhotoLibraryError, AlbumNotFoundError, PhotoLoadError, 
-    PhotoMetadataError, SlideshowError
+    PhotoMetadataError, SlideshowError, VideoProcessingError
 )
+from video_manager import VideoManager
 
 
 class PhotoManager:
-    """Manages photo loading and Apple Photos integration."""
+    """Manages photo and video loading with Apple Photos integration."""
     
     def __init__(self, config_path_or_dict, path_config: Optional[PathConfig] = None):
         # Handle both config file path and config dict
@@ -40,6 +41,16 @@ class PhotoManager:
         self.photos_cache = []
         self.cache_manager = CacheManager(self.config, self.path_config)
         self.last_cache_check = None
+        
+        # Initialize video manager for v3.0 video support
+        try:
+            self.video_manager = VideoManager(self.logger)
+            self.video_support_enabled = True
+            self.logger.info("Video processing support enabled")
+        except VideoProcessingError as e:
+            self.video_manager = None
+            self.video_support_enabled = False
+            self.logger.warning(f"Video support disabled: {e}")
         
         # Check if osxphotos is available
         if osxphotos is None:
@@ -585,3 +596,29 @@ class PhotoManager:
         except Exception as e:
             self.logger.error(f"Error getting filtered photos including missing: {e}")
             return []
+    
+    def is_video_supported(self) -> bool:
+        """Check if video processing is available."""
+        return self.video_support_enabled and self.video_manager is not None
+    
+    def get_supported_video_formats(self) -> List[str]:
+        """Get list of supported video formats."""
+        if self.is_video_supported():
+            return self.video_manager.get_supported_formats()
+        return []
+    
+    def validate_video_file(self, file_path: str) -> bool:
+        """Validate a video file for slideshow compatibility."""
+        if not self.is_video_supported():
+            return False
+        return self.video_manager.validate_video_file(file_path)
+    
+    def get_video_metadata(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Get metadata for a video file."""
+        if not self.is_video_supported():
+            return None
+        try:
+            return self.video_manager.get_video_metadata(file_path)
+        except Exception as e:
+            self.logger.error(f"Failed to get video metadata for {file_path}: {e}")
+            return None

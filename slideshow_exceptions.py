@@ -70,6 +70,22 @@ class DisplayError(SlideshowError):
     pass
 
 
+# Video processing exceptions for v3.0
+class VideoProcessingError(SlideshowError):
+    """Raised when there are issues with video processing."""
+    pass
+
+
+class VideoFormatError(VideoProcessingError):
+    """Raised when video format is not supported."""
+    pass
+
+
+class VideoCorruptionError(VideoProcessingError):
+    """Raised when video file is corrupted or unreadable."""
+    pass
+
+
 class NavigationError(SlideshowError):
     """Raised when there are issues with slideshow navigation."""
     pass
