@@ -889,19 +889,29 @@ class DisplayManager:
             self.video_paused = False
             self.logger.info("Video playback resumed")
     
-    def is_video_playing(self) -> bool:
-        """Check if video is currently playing."""
-        return self.video_playing and not self.video_paused
+    def _clear_display(self) -> None:
+        """Clear the display canvas and overlays."""
+        try:
+            if self.canvas:
+                self.canvas.delete("all")
+            self.clear_overlays()
+            self.current_image_id = None
+        except Exception as e:
+            self.logger.error(f"Error clearing display: {e}")
     
     def clear_overlays(self) -> None:
         """Clear all overlay elements."""
         try:
             self.clear_stopped_overlay()
             self.clear_countdown_timer()
+            
+            # Clear any remaining overlay labels
+            for label in self.overlay_labels:
+                try:
+                    label.destroy()
+                except:
+                    pass
+            self.overlay_labels.clear()
+            
         except Exception as e:
             self.logger.error(f"Error clearing overlays: {e}")
-    
-    def destroy(self) -> None:
-        """Clean up display resources."""
-        if self.root:
-            self.root.destroy()
