@@ -1,14 +1,27 @@
 """
-Display management for Dynamic Photo Slideshow.
-Handles fullscreen display, image rendering, and overlay positioning.
+Display management for Dynamic Photo Slideshow v3.0.
+Handles fullscreen display, image rendering, video playback, and overlay positioning.
 """
 
 import tkinter as tk
 import logging
 import os
-from typing import Dict, Any, Optional, List
+import threading
+import time
+import numpy as np
+from typing import Dict, Any, Optional, List, Union
 
 from PIL import Image, ImageTk, ImageDraw, ImageFont
+
+# Video processing imports
+try:
+    import cv2
+    OPENCV_AVAILABLE = True
+except ImportError:
+    OPENCV_AVAILABLE = False
+
+from video_manager import VideoManager
+from slideshow_exceptions import VideoProcessingError, DisplayError
 
 # Enable HEIC support
 try:
@@ -18,7 +31,7 @@ except ImportError:
     pass
 
 class DisplayManager:
-    """Manages fullscreen display and image rendering."""
+    """Manages fullscreen display, image rendering, and video playback."""
 
     def __init__(self, config):
         self.config = config
@@ -32,6 +45,17 @@ class DisplayManager:
         self.countdown_overlay_id = None
         self.stopped_overlay_id = None
         self.controller_ref = None
+        
+        # Video playback components
+        self.video_manager = None
+        self.current_video_cap = None
+        self.video_thread = None
+        self.video_playing = False
+        self.video_paused = False
+        self.video_stop_event = threading.Event()
+        
+        # Initialize video support if available
+        self._initialize_video_support()
         
         self._setup_display()
 
@@ -664,12 +688,210 @@ class DisplayManager:
     
     def start_event_loop(self, key_callback) -> None:
         """Start the tkinter event loop with key bindings."""
+        self.root.bind('<Key>', key_callback)
+        self.root.focus_set()
+        self.root.mainloop()
+    
+    def _initialize_video_support(self) -> None:
+        """Initialize video processing support if available."""
         try:
-            self.bind_key_events(key_callback)
-            self.root.mainloop()
+            if OPENCV_AVAILABLE and self.config.get('video_playback_enabled', False):
+                self.video_manager = VideoManager(self.logger)
+                self.logger.info("Video playback support enabled")
+            else:
+                self.logger.info("Video playback disabled in configuration or OpenCV unavailable")
         except Exception as e:
-            self.logger.error(f"Error in event loop: {e}")
-            raise
+            self.logger.warning(f"Failed to initialize video support: {e}")
+            self.video_manager = None
+    
+    def is_video_supported(self) -> bool:
+        """Check if video playback is supported and enabled."""
+        return self.video_manager is not None
+    
+    def display_video(self, video_path: str, overlays: Optional[List[Dict[str, Any]]] = None) -> bool:
+        """
+        Display a video file with optional overlays.
+        
+        Args:
+            video_path: Path to the video file
+            overlays: Optional list of overlay dictionaries
+            
+        Returns:
+            True if video playback started successfully, False otherwise
+        """
+        if not self.is_video_supported():
+            self.logger.warning("Video playback not supported")
+            return False
+        
+        try:
+            # Stop any existing video
+            self.stop_video()
+            
+            # Validate video file
+            if not self.video_manager.validate_video_file(video_path):
+                self.logger.error(f"Invalid video file: {video_path}")
+                return False
+            
+            # Get video metadata
+            metadata = self.video_manager.get_video_metadata(video_path)
+            if not metadata or not metadata.get('is_valid', False):
+                self.logger.error(f"Cannot read video metadata: {video_path}")
+                return False
+            
+            # Check video duration against config limits
+            max_duration = self.config.get('video_max_duration', 30)
+            if metadata.get('duration', 0) > max_duration:
+                self.logger.warning(f"Video duration {metadata.get('duration')}s exceeds limit {max_duration}s")
+                # Could truncate or skip, for now we'll play it anyway
+            
+            # Clear existing display
+            self._clear_display()
+            
+            # Add overlays if provided
+            if overlays:
+                self._add_overlays(overlays)
+            
+            # Start video playback in separate thread
+            self.video_stop_event.clear()
+            self.video_thread = threading.Thread(
+                target=self._video_playback_thread,
+                args=(video_path, metadata),
+                daemon=True
+            )
+            self.video_thread.start()
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to start video playback: {e}")
+            return False
+    
+    def _video_playback_thread(self, video_path: str, metadata: Dict[str, Any]) -> None:
+        """Thread function for video playback using OpenCV."""
+        try:
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                self.logger.error(f"Cannot open video: {video_path}")
+                return
+            
+            self.current_video_cap = cap
+            self.video_playing = True
+            
+            # Get video properties
+            fps = metadata.get('fps', 30)
+            frame_delay = 1.0 / fps if fps > 0 else 1.0 / 30
+            
+            self.logger.info(f"Playing video: {video_path} ({metadata.get('duration', 0):.1f}s, {fps:.1f} fps)")
+            
+            while not self.video_stop_event.is_set():
+                ret, frame = cap.read()
+                if not ret:
+                    # End of video
+                    break
+                
+                if self.video_paused:
+                    time.sleep(0.1)
+                    continue
+                
+                # Convert frame from BGR to RGB
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                
+                # Resize frame to fit screen while maintaining aspect ratio
+                frame_resized = self._resize_video_frame(frame_rgb)
+                
+                # Convert to PIL Image and then to PhotoImage
+                pil_image = Image.fromarray(frame_resized)
+                photo_image = ImageTk.PhotoImage(pil_image)
+                
+                # Update display on main thread
+                self.root.after(0, self._update_video_frame, photo_image)
+                
+                # Control playback speed
+                time.sleep(frame_delay)
+            
+        except Exception as e:
+            self.logger.error(f"Video playback error: {e}")
+        finally:
+            if cap:
+                cap.release()
+            self.current_video_cap = None
+            self.video_playing = False
+            self.logger.info("Video playback finished")
+    
+    def _resize_video_frame(self, frame_rgb) -> any:
+        """Resize video frame to fit screen while maintaining aspect ratio."""
+        frame_height, frame_width = frame_rgb.shape[:2]
+        
+        # Calculate scaling to fit screen
+        width_ratio = self.screen_width / frame_width
+        height_ratio = self.screen_height / frame_height
+        scale_ratio = min(width_ratio, height_ratio)
+        
+        # Calculate new dimensions
+        new_width = int(frame_width * scale_ratio)
+        new_height = int(frame_height * scale_ratio)
+        
+        # Resize frame
+        resized_frame = cv2.resize(frame_rgb, (new_width, new_height), interpolation=cv2.INTER_AREA)
+        
+        # Create black background
+        background = np.zeros((self.screen_height, self.screen_width, 3), dtype=np.uint8)
+        
+        # Center the resized frame
+        y_offset = (self.screen_height - new_height) // 2
+        x_offset = (self.screen_width - new_width) // 2
+        background[y_offset:y_offset+new_height, x_offset:x_offset+new_width] = resized_frame
+        
+        return background
+    
+    def _update_video_frame(self, photo_image) -> None:
+        """Update the canvas with a new video frame (called on main thread)."""
+        if self.canvas and self.video_playing:
+            # Clear previous frame
+            if self.current_image_id:
+                self.canvas.delete(self.current_image_id)
+            
+            # Display new frame
+            self.current_image_id = self.canvas.create_image(
+                self.screen_width // 2,
+                self.screen_height // 2,
+                image=photo_image,
+                anchor=tk.CENTER
+            )
+            
+            # Keep reference to prevent garbage collection
+            self.canvas.image = photo_image
+    
+    def stop_video(self) -> None:
+        """Stop video playback."""
+        if self.video_playing:
+            self.video_stop_event.set()
+            if self.video_thread and self.video_thread.is_alive():
+                self.video_thread.join(timeout=1.0)
+            
+            if self.current_video_cap:
+                self.current_video_cap.release()
+                self.current_video_cap = None
+            
+            self.video_playing = False
+            self.video_paused = False
+            self.logger.info("Video playback stopped")
+    
+    def pause_video(self) -> None:
+        """Pause video playback."""
+        if self.video_playing:
+            self.video_paused = True
+            self.logger.info("Video playback paused")
+    
+    def resume_video(self) -> None:
+        """Resume video playback."""
+        if self.video_playing and self.video_paused:
+            self.video_paused = False
+            self.logger.info("Video playback resumed")
+    
+    def is_video_playing(self) -> bool:
+        """Check if video is currently playing."""
+        return self.video_playing and not self.video_paused
     
     def clear_overlays(self) -> None:
         """Clear all overlay elements."""

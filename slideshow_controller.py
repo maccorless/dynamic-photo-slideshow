@@ -246,18 +246,115 @@ class SlideshowController:
         
         location_string = self._get_location_string(photo)
         
-        # Set interval based on media type
-        if photo['media_type'] in ['video', 'live_photo'] and self.config.get('video_playback_enabled'):
-            self.display_manager.display_video(photo['path'], self.config.get('video_audio_enabled'))
-            self.interval = self.config.get('video_max_duration', 10)
+        # Check if this is a video file and handle accordingly
+        if self._is_video_content(photo):
+            self._display_video_content(photo, photo_index, photo_count, location_string)
         else:
-            self.display_manager.display_photo(photo, location_string)
-            self.interval = self.config.get('slideshow_interval', 10)
+            self._display_photo_content(photo, photo_index, photo_count, location_string)
+    
+    def _is_video_content(self, content: Dict[str, Any]) -> bool:
+        """Check if content is a video file."""
+        if not self.display_manager.is_video_supported():
+            return False
+        
+        file_path = content.get('path') or content.get('filename', '')
+        if not file_path:
+            return False
+        
+        return self.photo_manager.video_manager and self.photo_manager.video_manager.is_video_file(file_path)
+    
+    def _display_video_content(self, video: Dict[str, Any], video_index: int, total_count: int, location_string: str) -> None:
+        """Display video content with appropriate timing."""
+        video_path = video.get('path') or video.get('filename', '')
+        
+        if not video_path or not os.path.exists(video_path):
+            self.logger.error(f"Video file not found: {video_path}")
+            return
+        
+        # Get video metadata for timing
+        metadata = self.photo_manager.get_video_metadata(video_path)
+        if not metadata:
+            self.logger.error(f"Cannot get video metadata: {video_path}")
+            return
+        
+        video_duration = metadata.get('duration', 0)
+        max_duration = self.config.get('video_max_duration', 30)
+        
+        # Use video duration or slideshow interval, whichever is shorter
+        display_duration = min(video_duration, max_duration, self.interval)
+        
+        self.logger.info(f"Displaying video: {video.get('filename', 'Unknown')} ({video_index+1}/{total_count}) - Duration: {display_duration:.1f}s")
+        
+        # Create overlays for video
+        overlays = self._create_video_overlays(video, video_index, total_count, location_string)
+        
+        # Display video
+        success = self.display_manager.display_video(video_path, overlays)
+        if not success:
+            self.logger.warning(f"Video playback failed, falling back to photo display")
+            self._display_photo_content(video, video_index, total_count, location_string)
+            return
+        
+        # Update history and recent items
+        self._update_recent_photos([video])
+        if self.history_position == -1:
+            self._add_to_history(video_index)
+    
+    def _display_photo_content(self, photo: Dict[str, Any], photo_index: int, photo_count: int, location_string: str) -> None:
+        """Display photo content (original behavior)."""
+        self.display_manager.display_photo(photo, location_string)
         
         # Update recent photos and history
-        self._update_recent_photos(self.current_photo_pair)
+        self._update_recent_photos([photo])
         if self.history_position == -1:
             self._add_to_history(photo_index)
+    
+    def _create_video_overlays(self, video: Dict[str, Any], video_index: int, total_count: int, location_string: str) -> List[Dict[str, Any]]:
+        """Create overlay information for video display."""
+        overlays = []
+        
+        # Add filename overlay if enabled
+        if self.show_filename:
+            overlays.append({
+                'type': 'filename',
+                'text': video.get('filename', 'Unknown Video'),
+                'position': 'bottom_left'
+            })
+        
+        # Add location overlay if available
+        if location_string:
+            overlays.append({
+                'type': 'location',
+                'text': location_string,
+                'position': 'top_right'
+            })
+        
+        # Add video info overlay
+        overlays.append({
+            'type': 'video_info',
+            'text': f"Video {video_index+1}/{total_count}",
+            'position': 'top_left'
+        })
+        
+        return overlays
+    
+    def pause_video(self) -> None:
+        """Pause video playback if currently playing."""
+        if self.display_manager.is_video_playing():
+            self.display_manager.pause_video()
+            self.logger.info("Video paused")
+    
+    def resume_video(self) -> None:
+        """Resume video playback if paused."""
+        if self.display_manager.is_video_supported():
+            self.display_manager.resume_video()
+            self.logger.info("Video resumed")
+    
+    def stop_video(self) -> None:
+        """Stop video playback."""
+        if self.display_manager.is_video_supported():
+            self.display_manager.stop_video()
+            self.logger.info("Video stopped")
     
     def _get_location_string(self, photo: Dict[str, Any]) -> Optional[str]:
         """Get location string from photo GPS coordinates if available."""
