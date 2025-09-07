@@ -439,10 +439,16 @@ class PhotoManager:
             except (AttributeError, TypeError):
                 pass  # GPS not available
 
-            # Skip photos without valid paths
+            # Handle videos that need to be exported from Apple Photos
             if not photo_data['path'] or photo_data['path'] == '':
-                self.logger.debug(f"Rejecting photo due to missing path: {photo_data.get('filename', 'unknown')}")
-                return None
+                if media_type == 'video' and hasattr(photo, 'export'):
+                    # For videos without direct paths, we'll handle export during display
+                    photo_data['needs_export'] = True
+                    photo_data['osxphoto_object'] = photo  # Store reference for export
+                    self.logger.debug(f"Video needs export: {photo_data.get('filename', 'unknown')}")
+                else:
+                    self.logger.debug(f"Rejecting photo due to missing path: {photo_data.get('filename', 'unknown')}")
+                    return None
 
             return photo_data
 
@@ -613,12 +619,54 @@ class PhotoManager:
             return False
         return self.video_manager.validate_video_file(file_path)
     
-    def get_video_metadata(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """Get metadata for a video file."""
-        if not self.is_video_supported():
+    def get_video_metadata(self, photo_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Get video metadata for a photo if it's a video."""
+        if not self.video_support_enabled:
             return None
+            
+        if photo_data.get('media_type') != 'video':
+            return None
+            
+        video_path = photo_data.get('path')
+        if not video_path and photo_data.get('needs_export'):
+            # Export video temporarily to get metadata
+            video_path = self._export_video_temporarily(photo_data)
+            if not video_path:
+                return None
+            
+        if not video_path:
+            return None
+            
+        return self.video_manager.get_video_metadata(video_path)
+    
+    def _export_video_temporarily(self, photo_data: Dict[str, Any]) -> Optional[str]:
+        """Export a video from Apple Photos to a temporary location."""
+        if not photo_data.get('needs_export') or not photo_data.get('osxphoto_object'):
+            return None
+            
         try:
-            return self.video_manager.get_video_metadata(file_path)
+            import tempfile
+            import os
+            
+            osxphoto = photo_data['osxphoto_object']
+            
+            # Create temp directory for video exports
+            temp_dir = os.path.join(tempfile.gettempdir(), 'photo_slideshow_videos')
+            os.makedirs(temp_dir, exist_ok=True)
+            
+            # Export video to temp location
+            export_paths = osxphoto.export(temp_dir, overwrite=True)
+            if export_paths:
+                exported_path = export_paths[0]
+                self.logger.debug(f"Exported video to: {exported_path}")
+                # Update photo_data with exported path for future use
+                photo_data['path'] = exported_path
+                photo_data['needs_export'] = False
+                return exported_path
+            else:
+                self.logger.warning(f"Failed to export video: {photo_data.get('filename', 'unknown')}")
+                return None
+                
         except Exception as e:
-            self.logger.error(f"Failed to get video metadata for {file_path}: {e}")
+            self.logger.error(f"Error exporting video {photo_data.get('filename', 'unknown')}: {e}")
             return None

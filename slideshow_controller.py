@@ -257,24 +257,39 @@ class SlideshowController:
         if not self.display_manager.is_video_supported():
             return False
         
-        file_path = content.get('path') or content.get('filename', '')
-        if not file_path:
-            return False
+        # Check media_type first (most reliable for Apple Photos)
+        if content.get('media_type') == 'video':
+            return True
         
-        return self.photo_manager.video_manager and self.photo_manager.video_manager.is_video_file(file_path)
+        # Fallback to file extension check
+        file_path = content.get('path') or content.get('filename', '')
+        if file_path:
+            return self.photo_manager.video_manager and self.photo_manager.video_manager.is_video_file(file_path)
+        
+        return False
     
-    def _display_video_content(self, video: Dict[str, Any], video_index: int, total_count: int, location_string: str) -> None:
-        """Display video content with appropriate timing."""
-        video_path = video.get('path') or video.get('filename', '')
+    def _display_video_content(self, video: Dict[str, Any], video_index: int, total_count: int, location_string: Optional[str]) -> None:
+        """Display video content with overlays and timing."""
+        video_path = video.get('path')
+        
+        # Handle videos that need to be exported from Apple Photos
+        if not video_path and video.get('needs_export'):
+            video_path = self.photo_manager._export_video_temporarily(video)
+            if not video_path:
+                self.logger.error(f"Failed to export video: {video.get('filename', 'Unknown')}")
+                self._display_photo_content(video, video_index, total_count, location_string)
+                return
         
         if not video_path or not os.path.exists(video_path):
             self.logger.error(f"Video file not found: {video_path}")
+            self._display_photo_content(video, video_index, total_count, location_string)
             return
         
         # Get video metadata for timing
-        metadata = self.photo_manager.get_video_metadata(video_path)
+        metadata = self.photo_manager.get_video_metadata(video)
         if not metadata:
             self.logger.error(f"Cannot get video metadata: {video_path}")
+            self._display_photo_content(video, video_index, total_count, location_string)
             return
         
         video_duration = metadata.get('duration', 0)
