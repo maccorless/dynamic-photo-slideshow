@@ -18,12 +18,9 @@ except ImportError:
     SPEECH_RECOGNITION_AVAILABLE = False
     sr = None
 
-try:
-    from pydub import AudioSegment
-    PYDUB_AVAILABLE = True
-except ImportError:
-    PYDUB_AVAILABLE = False
-    AudioSegment = None
+from voice_recognition_providers import VoiceRecognitionProviderFactory
+from voice_command_matcher import VoiceCommandMatcher
+from slideshow_exceptions import VoiceCommandError, VoiceRecognitionError
 
 
 class VoiceCommandService:
@@ -45,21 +42,15 @@ class VoiceCommandService:
         self.recognizer: Optional[sr.Recognizer] = None
         self.microphone: Optional[sr.Microphone] = None
         self.stop_listening: Optional[Callable] = None
+        self.voice_provider: Optional[VoiceRecognitionProvider] = None
+        self.command_matcher: Optional[VoiceCommandMatcher] = None
         
         # Service state
         self.is_listening = False
         self.is_enabled = False
         
-        # Voice command mappings
-        self.command_keywords = {
-            'next': ['next', 'forward', 'advance'],
-            'back': ['back', 'previous', 'backward'],
-            'pause': ['stop', 'pause', 'halt'],
-            'resume': ['blueberry', 'start', 'resume', 'play']
-        }
-        
-        # Initialize if speech recognition is available and enabled
-        if SPEECH_RECOGNITION_AVAILABLE and self.config.get('voice_commands_enabled', False):
+        # Initialize if voice commands are enabled
+        if self.config.get('voice_commands_enabled', False):
             self._initialize_voice_recognition()
     
     def _initialize_voice_recognition(self) -> bool:
@@ -70,31 +61,46 @@ class VoiceCommandService:
             bool: True if initialization successful, False otherwise
         """
         try:
-            self.recognizer = sr.Recognizer()
-            self.microphone = sr.Microphone()
+            # Create voice recognition provider
+            provider_type = self.config.get('voice_provider', 'google')
+            self.voice_provider = VoiceRecognitionProviderFactory.create_provider(provider_type, self.config)
             
-            # Configure recognizer for better sensitivity and ARM64 compatibility
-            self.recognizer.energy_threshold = 50  # Lower threshold for better detection
-            self.recognizer.dynamic_energy_threshold = True
-            self.recognizer.dynamic_energy_adjustment_damping = 0.15
-            self.recognizer.dynamic_energy_ratio = 1.5
-            self.recognizer.pause_threshold = 0.5  # Optimized for short commands
-            self.recognizer.non_speaking_duration = 0.3 # Optimized for short commands
-            self.recognizer.phrase_threshold = 0.3  # Shorter phrase detection
+            if not self.voice_provider:
+                self.logger.error(f"Failed to create voice provider: {provider_type}")
+                return False
             
-            # Adjust for ambient noise
-            with self.microphone as source:
-                self.logger.info("Calibrating microphone for ambient noise...")
-                self.recognizer.adjust_for_ambient_noise(source, duration=1)
-                self.logger.info(f"Energy threshold set to: {self.recognizer.energy_threshold}")
+            # Initialize command matcher
+            matcher_config_path = self.config.get('voice_command_variants_path')
+            self.command_matcher = VoiceCommandMatcher(matcher_config_path)
             
-            # Update command keywords from config if provided
-            config_keywords = self.config.get('voice_keywords', {})
-            if config_keywords:
-                self.command_keywords.update(config_keywords)
+            # Initialize speech recognition components if using real providers
+            if provider_type != 'mock' and SPEECH_RECOGNITION_AVAILABLE:
+                self.recognizer = sr.Recognizer()
+                self.microphone = sr.Microphone()
+                
+                # Configure recognizer for better sensitivity and ARM64 compatibility
+                self.recognizer.energy_threshold = 50  # Lower threshold for better detection
+                self.recognizer.dynamic_energy_threshold = True
+                self.recognizer.dynamic_energy_adjustment_damping = 0.15
+                self.recognizer.dynamic_energy_ratio = 1.5
+                self.recognizer.pause_threshold = 0.5  # Optimized for short commands
+                self.recognizer.non_speaking_duration = 0.3 # Optimized for short commands
+                self.recognizer.phrase_threshold = 0.3  # Shorter phrase detection
+                
+                # Adjust for ambient noise
+                with self.microphone as source:
+                    self.logger.info("Calibrating microphone for ambient noise...")
+                    self.recognizer.adjust_for_ambient_noise(source, duration=1)
+                    self.logger.info(f"Energy threshold set to: {self.recognizer.energy_threshold}")
+            
+            # Add any custom variants from config
+            custom_variants = self.config.get('custom_voice_variants', {})
+            for command, variants in custom_variants.items():
+                for variant in variants:
+                    self.command_matcher.add_custom_variant(command, variant)
             
             self.is_enabled = True
-            self.logger.info("Voice command service initialized successfully")
+            self.logger.info(f"Voice command service initialized with {self.voice_provider.get_provider_name()}")
             return True
             
         except Exception as e:
@@ -151,43 +157,13 @@ class VoiceCommandService:
         # Store playing state but don't pause immediately - wait to see if it's actually a command
         self.was_playing_before_command = self.controller.is_playing
         
-        if not PYDUB_AVAILABLE:
-            self.logger.warning("pydub not available, skipping audio normalization.")
-            try:
-                text = recognizer.recognize_google(audio).lower().strip()
-                self._process_voice_command(text)
-            except (sr.UnknownValueError, sr.RequestError) as e:
-                self.logger.debug(f"Standard recognition failed: {e}")
-            return
-
+        # Use the abstracted voice provider
         try:
-            # Get raw audio data and convert to a pydub AudioSegment
-            raw_data = audio.get_raw_data(convert_rate=audio.sample_rate, convert_width=audio.sample_width)
-            audio_segment = AudioSegment(raw_data, sample_width=audio.sample_width, frame_rate=audio.sample_rate, channels=1) # Assuming mono
-
-            # --- Audio Normalization ---
-            if audio_segment.dBFS < -20:
-                boost_db = abs(audio_segment.dBFS) - 15
-                audio_segment = audio_segment + boost_db
-                self.logger.info(f"Live audio is quiet ({audio_segment.dBFS:.1f} dBFS). Boosting volume by {boost_db:.1f} dB.")
-
-            if audio_segment.frame_rate != 16000:
-                audio_segment = audio_segment.set_frame_rate(16000)
-
-            # Export normalized audio to a WAV format in memory
-            normalized_wav_data = audio_segment.export(format="wav").read()
-            
-            # Create new AudioData with the normalized audio
-            normalized_audio = sr.AudioData(normalized_wav_data, 16000, 2) # 16kHz, 16-bit (2 bytes)
-
-            # Recognize the normalized audio
-            text = recognizer.recognize_google(normalized_audio).lower().strip()
-            self._process_voice_command(text)
-
-        except sr.UnknownValueError:
-            self.logger.debug("Voice recognition could not understand audio")
-        except sr.RequestError as e:
-            self.logger.warning(f"Voice recognition service error: {e}")
+            text = self.voice_provider.recognize_speech(audio)
+            if text:
+                self._process_voice_command(text)
+            else:
+                self.logger.debug("Voice recognition could not understand audio")
         except Exception as e:
             self.logger.error(f"Unexpected error in voice callback: {e}")
     
@@ -201,73 +177,24 @@ class VoiceCommandService:
         # Log all voice recognition attempts for debugging
         self.logger.info(f"Voice recognition attempt: '{text}'")
         
-        # Check confidence threshold if configured
-        confidence_threshold = self.config.get('voice_confidence_threshold', 0.0)
+        # Use the configurable command matcher
+        match_result = self.command_matcher.find_matching_command(text)
         
-        # Find matching command using simplified approach
         command_found = False
-        
-        # Only pause timer if we actually find a valid command
         paused_for_command = False
         
-        # Try exact word matching with very permissive approach
-        text_lower = text.lower().strip()
-        words = text_lower.split()
-        
-        # Check for exact matches first
-        for word in words:
-            if word == 'left' or word == 'back' or word == 'previous' or word == 'backward':
-                if not paused_for_command and self.was_playing_before_command:
-                    self.controller.pause_for_voice_command()
-                    paused_for_command = True
-                self.logger.info(f"Voice command recognized: exact word '{word}' -> back (from text: '{text}')")
-                self._show_voice_feedback('previous' if word == 'previous' else 'back')
-                self._schedule_command_execution('back', word)
-                command_found = True
-                break
-            elif word == 'right' or word == 'next' or word == 'forward' or word == 'advance':
-                if not paused_for_command and self.was_playing_before_command:
-                    self.controller.pause_for_voice_command()
-                    paused_for_command = True
-                self.logger.info(f"Voice command recognized: exact word '{word}' -> next (from text: '{text}')")
-                self._show_voice_feedback('next')
-                self._schedule_command_execution('next', word)
-                command_found = True
-                break
-            elif word == 'stop' or word == 'pause' or word == 'halt':
-                if not paused_for_command and self.was_playing_before_command:
-                    self.controller.pause_for_voice_command()
-                    paused_for_command = True
-                self.logger.info(f"Voice command recognized: exact word '{word}' -> pause (from text: '{text}')")
-                self._show_voice_feedback('stop')
-                self._schedule_command_execution('pause', word)
-                command_found = True
-                break
-            elif word == 'go' or word == 'play' or word == 'resume' or word == 'start':
-                if not paused_for_command and self.was_playing_before_command:
-                    self.controller.pause_for_voice_command()
-                    paused_for_command = True
-                self.logger.info(f"Voice command recognized: exact word '{word}' -> resume (from text: '{text}')")
-                self._show_voice_feedback('go')
-                self._schedule_command_execution('resume', word)
-                command_found = True
-                break
-        
-        # If no exact match, try fuzzy matching
-        if not command_found:
-            for keyword, command in self.command_keywords.items():
-                for variant in command:
-                    if self._fuzzy_match(variant, text_lower):
-                        if not paused_for_command and self.was_playing_before_command:
-                            self.controller.pause_for_voice_command()
-                            paused_for_command = True
-                        self.logger.info(f"Voice command recognized: fuzzy match '{variant}' -> {keyword} (from text: '{text}')")
-                        self._show_voice_feedback(keyword)
-                        self._schedule_command_execution(keyword, variant)
-                        command_found = True
-                        break
-                if command_found:
-                    break
+        if match_result:
+            command, matched_variant, match_type = match_result
+            
+            # Pause timer if we found a valid command
+            if self.was_playing_before_command:
+                self.controller.pause_for_voice_command()
+                paused_for_command = True
+            
+            self.logger.info(f"Voice command recognized: {match_type} match '{matched_variant}' -> {command} (from text: '{text}')")
+            self._show_voice_feedback(command)
+            self._schedule_command_execution(command, matched_variant)
+            command_found = True
         
         if not command_found:
             self.logger.info(f"No matching voice command found for: '{text}'")
@@ -290,93 +217,6 @@ class VoiceCommandService:
         except Exception as e:
             self.logger.debug(f"Error showing voice feedback: {e}")
     
-    def _fuzzy_match(self, keyword: str, text: str) -> bool:
-        """
-        Fuzzy matching for voice commands to improve recognition.
-        
-        Args:
-            keyword: The target keyword to match
-            text: The recognized speech text
-            
-        Returns:
-            bool: True if keyword matches text with fuzzy logic
-        """
-        # Convert to lowercase for case-insensitive matching
-        keyword = keyword.lower().strip()
-        text = text.lower().strip()
-        
-        # Exact match (original behavior)
-        if keyword in text:
-            return True
-        
-        # Word boundary matching - keyword as whole word
-        if re.search(r'\b' + re.escape(keyword) + r'\b', text):
-            return True
-        
-        # Handle common speech recognition errors
-        
-        # "back" often gets recognized as "bag", "pack", "beck", etc.
-        if keyword == "back":
-            back_variants = ["bag", "pack", "beck", "bak", "backed", "backing", "bat", "black", "track", "lack", "sack", "rack", "crack", "stack", "attack", "snack", "jack", "hack", "tack", "whack", "smack", "quack", "mac", "tak", "ak", "ack", "bac", "bck"]
-            for variant in back_variants:
-                if variant in text:
-                    return True
-        
-        # Also handle "previous" variants since user mentioned it works
-        if keyword == "previous":
-            previous_variants = ["precious", "previus", "prev", "previously"]
-            for variant in previous_variants:
-                if variant in text:
-                    return True
-        
-        # "next" variants
-        if keyword == "next":
-            next_variants = ["neck", "text", "nest", "nets"]
-            for variant in next_variants:
-                if variant in text:
-                    return True
-        
-        # "stop" variants
-        if keyword == "stop":
-            stop_variants = ["top", "shop", "stopped", "stopping"]
-            for variant in stop_variants:
-                if variant in text:
-                    return True
-        
-        # Partial matching for very short words (2-3 characters)
-        if len(keyword) <= 3:
-            # Check if keyword is at start or end of any word in text
-            words = text.split()
-            for word in words:
-                if word.startswith(keyword) or word.endswith(keyword):
-                    return True
-        
-        # Phonetic similarity for difficult words
-        if keyword == "go":
-            # Single syllable words that sound similar to "go"
-            phonetic_go = ["oh", "so", "no", "low", "bow", "row", "show", "flow", "slow", "know", "throw", "grow", "glow"]
-            for phonetic in phonetic_go:
-                if phonetic in text:
-                    return True
-        
-        if keyword == "back":
-            # Words ending in "-ack" sound
-            phonetic_back = ["sack", "rack", "crack", "stack", "attack", "snack", "jack", "hack", "tack", "whack", "smack", "quack", "track", "pack", "lack", "black"]
-            for phonetic in phonetic_back:
-                if phonetic in text:
-                    return True
-        
-        # Levenshtein distance for very close matches (1-2 character differences)
-        if len(keyword) >= 3:
-            words = text.split()
-            for word in words:
-                if len(word) >= 2 and abs(len(word) - len(keyword)) <= 2:
-                    # Simple character difference check
-                    differences = sum(1 for a, b in zip(keyword, word) if a != b)
-                    if differences <= 1 and len(keyword) == len(word):
-                        return True
-        
-        return False
     
     def _schedule_command_execution(self, command: str, keyword: str) -> None:
         """

@@ -12,17 +12,20 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
 from location_service import LocationService
+from path_config import PathConfig
+from slideshow_exceptions import NavigationError, DisplayError, SlideshowError
 from voice_command_service import VoiceCommandService
 
 
 class SlideshowController:
     """Controls slideshow timing, navigation, and photo sequencing."""
     
-    def __init__(self, config, photo_manager, display_manager):
+    def __init__(self, config, photo_manager, display_manager, path_config=None):
         self.config = config
         self.photo_manager = photo_manager
         self.display_manager = display_manager
-        self.location_service = LocationService(config)
+        self.path_config = path_config
+        self.location_service = LocationService(config, path_config)
         self.logger = logging.getLogger(__name__)
         
         # Initialize voice command service
@@ -109,164 +112,162 @@ class SlideshowController:
     def _display_next_photo(self) -> None:
         """Display the next photo or photo pair using indexed selection."""
         try:
-            # Check for new photos periodically (at configured interval)
             self._check_cache_refresh()
             
             photo_count = self.photo_manager.get_photo_count()
             if photo_count == 0:
                 return
             
-            # Get photo from history or generate new random index
-            photo = None
-            photo_index = None
-            
-            # If we're navigating through history, use history position
+            # Check if we're navigating through history and have a photo pair
             if self.history_position >= 0 and self.history_position < len(self.photo_history):
                 history_data = self.photo_history[self.history_position]
                 
-                # Check if history data is a pair (tuple) or single index (int)
+                # If it's a photo pair from history, handle it directly
                 if isinstance(history_data, tuple) and len(history_data) == 2:
-                    # Photo pair from history
-                    photo_index, second_photo_index = history_data
-                    photo = self.photo_manager.get_photo_by_index(photo_index)
-                    second_photo = self.photo_manager.get_photo_by_index(second_photo_index)
-                    
-                    if photo and second_photo:
-                        # Valid photo pair from history - display immediately
-                        photo_pair = [photo, second_photo]
-                        self.current_photo_pair = photo_pair
-                        self.logger.info(f"Displaying photo pair from history: {photo['filename']}, {second_photo['filename']} ({photo_index+1}, {second_photo_index+1} of {photo_count})")
-                        
-                        # Get location string from first photo if GPS coordinates available
-                        location_string = None
-                        if 'gps_coordinates' in photo:
-                            coords = photo['gps_coordinates']
-                            location_string = self.location_service.get_location_string(
-                                coords['latitude'], coords['longitude']
-                            )
-                        
-                        self.display_manager.display_photo(photo_pair, location_string)
-                        self._update_recent_photos([photo, second_photo])
-                        
-                        # Add photo pair to history if this is a new photo (not from history navigation)
-                        if self.history_position == -1:
-                            self._add_to_history((photo_index, second_photo_index))
-                        return
-                    else:
-                        # Invalid photo pair in history, generate new one
-                        photo = None
-                        photo_index = None
-                elif isinstance(history_data, int):
-                    # Single photo from history
-                    photo_index = history_data
-                    photo = self.photo_manager.get_photo_by_index(photo_index)
-                    if photo:
-                        # Valid photo from history
-                        pass
-                    else:
-                        # Invalid photo in history, generate new one
-                        photo = None
-                        photo_index = None
-                else:
-                    # Invalid history data format
-                    photo = None
-                    photo_index = None
+                    photo, photo_index = self._handle_history_photo_pair(history_data)
+                    return  # Photo pair already displayed in _handle_history_photo_pair
             
-            # If no valid photo from history, generate new random photo
-            if not photo:
-                attempts = 0
-                while attempts < 10 and not photo:
-                    photo_index = self.photo_manager.get_random_photo_index()
-                    candidate_photo = self.photo_manager.get_photo_by_index(photo_index)
-                    
-                    if candidate_photo:
-                        photo = candidate_photo
-                        break
-                    attempts += 1
-            
+            # Get photo from history or generate new one
+            photo, photo_index = self._get_next_photo()
             if not photo:
                 self.logger.warning("Could not find a valid image file to display")
                 return
             
-            # Check if portrait pairing is enabled and this is a portrait photo
-            if (self.config.get('portrait_pairing', True) and photo.get('orientation') == 'portrait'):
-                # Advanced pairing logic for mixed media
-                second_photo, second_photo_index = self._find_pairing_partner(photo, photo_index)
-                
-                if second_photo:
-                    # Display photo pair
-                    photo_pair = [photo, second_photo]
-                    self.current_photo_pair = photo_pair
-                    self.logger.info(f"Displaying photo pair: {photo['filename']}, {second_photo['filename']} ({photo_index+1}, {second_photo_index+1} of {photo_count})")
-                    
-                    # Get location string from first photo if GPS coordinates available
-                    location_string = None
-                    if 'gps_coordinates' in photo:
-                        coords = photo['gps_coordinates']
-                        location_string = self.location_service.get_location_string(
-                            coords['latitude'], coords['longitude']
-                        )
-                    
-                    self.display_manager.display_photo(photo_pair, location_string)
-                    self._update_recent_photos([photo, second_photo])
-                    
-                    # Add photo pair to history if this is a new photo (not from history navigation)
-                    if self.history_position == -1:
-                        self._add_to_history((photo_index, second_photo_index))
-                else:
-                    # Display single portrait photo
-                    self.current_photo_pair = photo
-                    self.logger.info(f"Displaying photo: {photo['filename']} ({photo_index+1}/{photo_count})")
-                    
-                    # Get location string if GPS coordinates available
-                    location_string = None
-                    if 'gps_coordinates' in photo:
-                        coords = photo['gps_coordinates']
-                        location_string = self.location_service.get_location_string(
-                            coords['latitude'], coords['longitude']
-                        )
-                    
-                    # Display based on media type
-                    if photo['media_type'] in ['video', 'live_photo'] and self.config.get('video_playback_enabled'):
-                        self.display_manager.display_video(photo['path'], self.config.get('video_audio_enabled'))
-                        self.interval = self.config.get('video_max_duration', 10)
-                    else:
-                        self.display_manager.display_photo(photo, location_string)
-                        self.interval = self.config.get('slideshow_interval', 10)
-                    
-                    # Add single photo to history if this is a new photo (not from history navigation)
-                    if self.history_position == -1:
-                        self._add_to_history(photo_index)
-            else:
-                # Display single photo (landscape or portrait pairing disabled)
-                self.current_photo_pair = photo
-                self.logger.info(f"Displaying photo: {photo['filename']} ({photo_index+1}/{photo_count})")
-                
-                # Get location string if GPS coordinates available
-                location_string = None
-                if 'gps_coordinates' in photo:
-                    coords = photo['gps_coordinates']
-                    location_string = self.location_service.get_location_string(
-                        coords['latitude'], coords['longitude']
-                    )
-                
-                # Display based on media type
-                if photo['media_type'] in ['video', 'live_photo'] and self.config.get('video_playback_enabled'):
-                    self.display_manager.display_video(photo['path'], self.config.get('video_audio_enabled'))
-                    self.interval = self.config.get('video_max_duration', 10)
-                else:
-                    self.display_manager.display_photo(photo, location_string)
-                    self.interval = self.config.get('slideshow_interval', 10)
-                
-                # Add single photo to history if this is a new photo (not from history navigation)
-                if self.history_position == -1:
-                    self._add_to_history(photo_index)
+            # Handle photo display based on orientation and pairing settings
+            self._handle_photo_display(photo, photo_index, photo_count)
             
-            # Update recent photos for anti-repetition
-            self._update_recent_photos(self.current_photo_pair)
-            
-        except Exception as e:
+        except (OSError, MemoryError) as e:
             self.logger.error(f"Error displaying photo: {e}")
+        except Exception as e:
+            raise DisplayError(f"Unexpected error displaying photo: {e}")
+    
+    def _get_next_photo(self) -> tuple[Optional[Dict[str, Any]], Optional[int]]:
+        """Get the next photo to display from history or generate new random photo."""
+        # Try to get photo from history first
+        photo, photo_index = self._get_photo_from_history()
+        if photo:
+            return photo, photo_index
+        
+        # Generate new random photo if no valid photo from history
+        return self._get_random_photo()
+    
+    def _get_photo_from_history(self) -> tuple[Optional[Dict[str, Any]], Optional[int]]:
+        """Get photo from navigation history if available."""
+        if not (self.history_position >= 0 and self.history_position < len(self.photo_history)):
+            return None, None
+        
+        history_data = self.photo_history[self.history_position]
+        
+        # Handle photo pair from history
+        if isinstance(history_data, tuple) and len(history_data) == 2:
+            return self._handle_history_photo_pair(history_data)
+        
+        # Handle single photo from history
+        elif isinstance(history_data, int):
+            photo_index = history_data
+            photo = self.photo_manager.get_photo_by_index(photo_index)
+            return (photo, photo_index) if photo else (None, None)
+        
+        return None, None
+    
+    def _handle_history_photo_pair(self, history_data: tuple) -> tuple[Optional[Dict[str, Any]], Optional[int]]:
+        """Handle photo pair from history."""
+        photo_index, second_photo_index = history_data
+        photo = self.photo_manager.get_photo_by_index(photo_index)
+        second_photo = self.photo_manager.get_photo_by_index(second_photo_index)
+        
+        if photo and second_photo:
+            photo_count = self.photo_manager.get_photo_count()
+            photo_pair = [photo, second_photo]
+            self.current_photo_pair = photo_pair
+            
+            self.logger.info(f"Displaying photo pair from history: {photo['filename']}, {second_photo['filename']} ({photo_index+1}, {second_photo_index+1} of {photo_count})")
+            
+            location_string = self._get_location_string(photo)
+            self.display_manager.display_photo(photo_pair, location_string)
+            self._update_recent_photos([photo, second_photo])
+            
+            if self.history_position == -1:
+                self._add_to_history((photo_index, second_photo_index))
+            
+            return photo, photo_index  # Return first photo for consistency
+        
+        return None, None
+    
+    def _get_random_photo(self) -> tuple[Optional[Dict[str, Any]], Optional[int]]:
+        """Generate a new random photo."""
+        attempts = 0
+        while attempts < 10:
+            photo_index = self.photo_manager.get_random_photo_index()
+            candidate_photo = self.photo_manager.get_photo_by_index(photo_index)
+            
+            if candidate_photo:
+                return candidate_photo, photo_index
+            attempts += 1
+        
+        return None, None
+    
+    def _handle_photo_display(self, photo: Dict[str, Any], photo_index: int, photo_count: int) -> None:
+        """Handle the display of a photo, including pairing logic."""
+        # Check if portrait pairing is enabled and this is a portrait photo
+        if (self.config.get('portrait_pairing', True) and photo.get('orientation') == 'portrait'):
+            self._handle_portrait_photo_display(photo, photo_index, photo_count)
+        else:
+            self._display_single_photo(photo, photo_index, photo_count)
+    
+    def _handle_portrait_photo_display(self, photo: Dict[str, Any], photo_index: int, photo_count: int) -> None:
+        """Handle display of portrait photos with pairing logic."""
+        second_photo, second_photo_index = self._find_pairing_partner(photo, photo_index)
+        
+        if second_photo:
+            self._display_photo_pair(photo, photo_index, second_photo, second_photo_index, photo_count)
+        else:
+            self._display_single_photo(photo, photo_index, photo_count)
+    
+    def _display_photo_pair(self, photo: Dict[str, Any], photo_index: int, 
+                           second_photo: Dict[str, Any], second_photo_index: int, photo_count: int) -> None:
+        """Display a pair of photos."""
+        photo_pair = [photo, second_photo]
+        self.current_photo_pair = photo_pair
+        
+        self.logger.info(f"Displaying photo pair: {photo['filename']}, {second_photo['filename']} ({photo_index+1}, {second_photo_index+1} of {photo_count})")
+        
+        location_string = self._get_location_string(photo)
+        self.display_manager.display_photo(photo_pair, location_string)
+        self._update_recent_photos([photo, second_photo])
+        
+        if self.history_position == -1:
+            self._add_to_history((photo_index, second_photo_index))
+    
+    def _display_single_photo(self, photo: Dict[str, Any], photo_index: int, photo_count: int) -> None:
+        """Display a single photo."""
+        self.current_photo_pair = photo
+        self.logger.info(f"Displaying photo: {photo['filename']} ({photo_index+1}/{photo_count})")
+        
+        location_string = self._get_location_string(photo)
+        
+        # Set interval based on media type
+        if photo['media_type'] in ['video', 'live_photo'] and self.config.get('video_playback_enabled'):
+            self.display_manager.display_video(photo['path'], self.config.get('video_audio_enabled'))
+            self.interval = self.config.get('video_max_duration', 10)
+        else:
+            self.display_manager.display_photo(photo, location_string)
+            self.interval = self.config.get('slideshow_interval', 10)
+        
+        # Update recent photos and history
+        self._update_recent_photos(self.current_photo_pair)
+        if self.history_position == -1:
+            self._add_to_history(photo_index)
+    
+    def _get_location_string(self, photo: Dict[str, Any]) -> Optional[str]:
+        """Get location string from photo GPS coordinates if available."""
+        if 'gps_coordinates' not in photo:
+            return None
+        
+        coords = photo['gps_coordinates']
+        return self.location_service.get_location_string(
+            coords['latitude'], coords['longitude']
+        )
 
     def _find_pairing_partner(self, first_photo: Dict[str, Any], first_photo_index: int) -> (Optional[Dict[str, Any]], Optional[int]):
         """Find a suitable partner for a portrait photo. Only pairs image files since video playback was removed."""

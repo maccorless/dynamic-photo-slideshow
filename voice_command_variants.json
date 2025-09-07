@@ -1,0 +1,45 @@
+{
+  "command_variants": {
+    "back": {
+      "exact_matches": ["back", "previous", "backward", "left"],
+      "fuzzy_variants": [
+        "bag", "pack", "beck", "bak", "backed", "backing", "bat", "black", 
+        "track", "lack", "sack", "rack", "crack", "stack", "attack", "snack", 
+        "jack", "hack", "tack", "whack", "smack", "quack", "mac", "tak", "ak", 
+        "ack", "bac", "bck"
+      ],
+      "phonetic_variants": [
+        "sack", "rack", "crack", "stack", "attack", "snack", "jack", "hack", 
+        "tack", "whack", "smack", "quack", "track", "pack", "lack", "black"
+      ],
+      "partial_match_variants": ["precious", "previus", "prev", "previously"]
+    },
+    "next": {
+      "exact_matches": ["next", "forward", "advance", "right"],
+      "fuzzy_variants": ["neck", "text", "nest", "nets", "nex", "nxt"],
+      "phonetic_variants": ["hex", "sex", "flex", "tex"],
+      "partial_match_variants": []
+    },
+    "pause": {
+      "exact_matches": ["stop", "pause", "halt"],
+      "fuzzy_variants": ["top", "shop", "stopped", "stopping", "paws", "pos"],
+      "phonetic_variants": ["cop", "hop", "pop", "drop", "chop"],
+      "partial_match_variants": []
+    },
+    "resume": {
+      "exact_matches": ["go", "play", "resume", "start", "blueberry"],
+      "fuzzy_variants": ["oh", "so", "no", "low", "bow", "row", "show", "flow", "slow", "know", "throw", "grow", "glow"],
+      "phonetic_variants": ["bow", "row", "show", "flow", "slow", "know", "throw", "grow", "glow"],
+      "partial_match_variants": []
+    }
+  },
+  "matching_settings": {
+    "enable_exact_matching": true,
+    "enable_fuzzy_matching": true,
+    "enable_phonetic_matching": true,
+    "enable_partial_matching": true,
+    "max_character_differences": 1,
+    "min_word_length_for_partial": 3,
+    "case_sensitive": false
+  }
+}

@@ -6,7 +6,9 @@ Handles loading, validation, and defaults for user configuration.
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, Union
+from typing import Dict, Any, Optional
+
+from path_config import PathConfig
 
 
 class SlideshowConfig:
@@ -71,8 +73,9 @@ class SlideshowConfig:
         "overall_filter_logic": ["AND", "OR"]
     }
     
-    def __init__(self):
-        self.config_path = Path.home() / '.photo_slideshow_config.json'
+    def __init__(self, path_config: Optional[PathConfig] = None):
+        self.path_config = path_config or PathConfig()
+        self.config_path = self.path_config.config_file
         self.config = self.DEFAULT_CONFIG.copy()
         self.logger = logging.getLogger(__name__)
     

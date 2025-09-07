@@ -15,29 +15,35 @@ except ImportError:
     osxphotos = None
 
 from cache_manager import CacheManager
+from path_config import PathConfig
+from slideshow_exceptions import (
+    PhotoLibraryError, AlbumNotFoundError, PhotoLoadError, 
+    PhotoMetadataError, SlideshowError
+)
 
 
 class PhotoManager:
     """Manages photo loading and Apple Photos integration."""
     
-    def __init__(self, config_path_or_dict):
+    def __init__(self, config_path_or_dict, path_config: Optional[PathConfig] = None):
         # Handle both config file path and config dict
         if isinstance(config_path_or_dict, str):
             from config import SlideshowConfig
-            self.config = SlideshowConfig(config_path_or_dict)
+            self.config = SlideshowConfig(path_config)
         else:
             self.config = config_path_or_dict
             
+        self.path_config = path_config or PathConfig()
         self.logger = logging.getLogger(__name__)
         self.photos_db = None
         self.album_name = self.config.get('album_name', 'photoframe')
         self.photos_cache = []
-        self.cache_manager = CacheManager(self.config)
+        self.cache_manager = CacheManager(self.config, self.path_config)
         self.last_cache_check = None
         
         # Check if osxphotos is available
         if osxphotos is None:
-            raise ImportError("osxphotos library is required but not installed. Please install with: pip install osxphotos")
+            raise PhotoLibraryError("osxphotos library is required but not installed. Please install with: pip install osxphotos")
     
     def _connect_to_photos(self) -> bool:
         """Connect to Photos library using osxphotos."""
@@ -45,10 +51,12 @@ class PhotoManager:
             self.photos_db = osxphotos.PhotosDB()
             self.logger.info("Successfully connected to Photos library")
             return True
-        except Exception as e:
+        except (OSError, PermissionError) as e:
             self.logger.error(f"Failed to connect to Photos library: {e}")
             self.logger.error("Make sure Photos is installed and accessible.")
             return False
+        except Exception as e:
+            raise PhotoLibraryError(f"Unexpected error connecting to Photos library: {e}")
     
     def verify_album(self) -> bool:
         """Verify that the specified album exists in the Photos library."""
@@ -72,7 +80,7 @@ class PhotoManager:
                             
                     elif isinstance(album, str):
                         album_names.append(album)
-                except Exception as e:
+                except (AttributeError, TypeError) as e:
                     self.logger.debug(f"Error processing album: {e}")
                     continue
             
@@ -98,10 +106,11 @@ class PhotoManager:
                 self.logger.info("Using all photos as fallback for now...")
                 return True  # Allow fallback
                 
-        except Exception as e:
+        except (OSError, AttributeError) as e:
             self.logger.error(f"Error verifying album: {e}")
             return True  # Allow fallback
-            return False
+        except Exception as e:
+            raise AlbumNotFoundError(f"Unexpected error verifying album '{self.album_name}': {e}")
     
     def load_photos(self) -> List[Dict[str, Any]]:
         """Load photos with filtering by people, places, or album."""
@@ -133,20 +142,13 @@ class PhotoManager:
                     if str(album_title).lower() == self.album_name.lower():
                         target_album = album
                         break
-                except Exception:
+                except (AttributeError, TypeError):
                     continue
             
             if not target_album:
                 self.logger.warning(f"Album '{self.album_name}' not found, falling back to all photos")
                 # Clear any existing cache and force fresh load
                 self.photos_cache = None
-                if photos:
-                    self.photos_cache = photos.copy()
-                    self.logger.info(f"Cached {len(photos)} photos for slideshow (fresh load)")
-                # Fallback to all photos
-                all_photos = self.photos_db.photos()
-                self.logger.info(f"Using all photos as fallback: {len(all_photos)} photos found")
-                
                 # Use the filtering system instead of fallback
                 return self._load_photos_with_filters()
             else:
@@ -193,7 +195,7 @@ class PhotoManager:
                                 photos.append(photo_data)
                                 if len(photos) >= self.config.get('min_fallback_photos'):
                                     break
-                except Exception as e:
+                except (OSError, AttributeError, MemoryError) as e:
                     self.logger.error(f"Error accessing album photos: {e}")
                     # Final fallback with shuffle
                     all_photos = list(self.photos_db.photos())
@@ -212,9 +214,11 @@ class PhotoManager:
             self.logger.info(f"Rejected {0} photos during metadata extraction")
             return photos
         
-        except Exception as e:
+        except (OSError, MemoryError) as e:
             self.logger.error(f"Error loading photos: {e}")
             return []
+        except Exception as e:
+            raise PhotoLoadError(f"Unexpected error loading photos: {e}")
     
     def _load_photos_with_filters(self) -> List[Dict[str, Any]]:
         """Load photos using direct osxphotos search for people filtering."""
@@ -236,7 +240,7 @@ class PhotoManager:
                         person_photos = self.photos_db.photos(persons=[person_name.strip()])
                         filtered_photos.extend(person_photos)
                         self.logger.info(f"Found {len(person_photos)} photos with person '{person_name}'")
-                    except Exception as e:
+                    except (OSError, AttributeError, ValueError) as e:
                         self.logger.warning(f"Error searching for person '{person_name}': {e}")
                 
                 # Remove duplicates while preserving order
@@ -269,7 +273,7 @@ class PhotoManager:
                         else:
                             rejected_count += 1
                             
-                except Exception as e:
+                except (AttributeError, OSError, ValueError) as e:
                     self.logger.debug(f"Error filtering photo: {e}")
                     rejected_count += 1
                     continue
@@ -292,9 +296,11 @@ class PhotoManager:
             self.photos_cache = photos
             return photos
             
-        except Exception as e:
+        except (OSError, MemoryError) as e:
             self.logger.error(f"Error applying filters: {e}")
             return []
+        except Exception as e:
+            raise PhotoLoadError(f"Unexpected error applying filters: {e}")
     
     def _check_people_filter(self, photo, filter_by_people, filter_people_names, min_people, logic):
         """Check if photo matches people filter criteria."""
@@ -321,7 +327,7 @@ class PhotoManager:
                     
                     if name and name != 'None':
                         photo_people.append(name.lower().strip())
-                except Exception:
+                except (AttributeError, TypeError):
                     continue
             
             if logic == 'AND':
@@ -405,7 +411,7 @@ class PhotoManager:
                         photo_data['exif_orientation'] = exif_info.orientation
                     elif hasattr(exif_info, 'get'):
                         photo_data['exif_orientation'] = exif_info.get('Orientation', 1)
-            except Exception as e:
+            except (AttributeError, KeyError, ValueError) as e:
                 self.logger.debug(f"Could not extract EXIF orientation: {e}")
 
             # Determine orientation safely
@@ -419,7 +425,7 @@ class PhotoManager:
                         'latitude': photo.location[0],
                         'longitude': photo.location[1]
                     }
-            except Exception:
+            except (AttributeError, TypeError):
                 pass  # GPS not available
 
             # Skip photos without valid paths
@@ -429,9 +435,11 @@ class PhotoManager:
 
             return photo_data
 
-        except Exception as e:
+        except (OSError, AttributeError, ValueError) as e:
             self.logger.warning(f"Error extracting metadata for photo: {e}")
             return None
+        except Exception as e:
+            raise PhotoMetadataError(f"Unexpected error extracting photo metadata: {e}")
     
     def _determine_orientation(self, width: int, height: int) -> str:
         """Determine photo orientation based on dimensions."""

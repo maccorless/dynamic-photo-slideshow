@@ -5,19 +5,20 @@ Handles cache invalidation signals and incremental photo loading.
 
 import json
 import logging
-import time
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from datetime import datetime, timezone
+from typing import Dict, Any, Optional
 
+from path_config import PathConfig
 
 class CacheManager:
     """Manages photo cache invalidation and incremental loading."""
     
-    def __init__(self, config):
+    def __init__(self, config, path_config: Optional[PathConfig] = None):
         self.config = config
+        self.path_config = path_config or PathConfig()
         self.logger = logging.getLogger(__name__)
-        self.signal_file = Path.home() / '.photo_slideshow_download_signal.json'
+        self.signal_file = self.path_config.download_signal_file
         self.last_check_time = None
         
     def write_download_signal(self, photos_added: int, total_photos: int) -> None:

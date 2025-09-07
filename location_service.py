@@ -6,18 +6,23 @@ Handles reverse geocoding using Nominatim API with caching.
 import json
 import logging
 import requests
-from pathlib import Path
-from typing import Optional, Dict, Any, Tuple
 import time
+from typing import Optional, Dict, Any
+from pathlib import Path
+from datetime import datetime, timedelta
+
+from path_config import PathConfig
+from slideshow_exceptions import LocationServiceError, GeoccodingError
 
 
 class LocationService:
     """Handles reverse geocoding and location caching."""
     
-    def __init__(self, config):
+    def __init__(self, config, path_config: Optional[PathConfig] = None):
         self.config = config
+        self.path_config = path_config or PathConfig()
         self.logger = logging.getLogger(__name__)
-        self.cache_file = Path.home() / '.photo_slideshow_cache.json'
+        self.cache_file = self.path_config.cache_file
         self.cache = {}
         self.load_cache()
         
@@ -26,6 +31,15 @@ class LocationService:
         self.headers = {
             'User-Agent': 'PhotoSlideshow/1.0 (Dynamic Photo Slideshow App)'
         }
+        
+        # Rate limiting settings (Nominatim policy: max 1 request per second)
+        self.min_request_interval = 1.0  # seconds between requests
+        self.last_request_time = 0
+        
+        # Retry settings
+        self.max_retries = 3
+        self.retry_delays = [1, 2, 5]  # seconds to wait between retries
+        self.timeout = 10  # request timeout in seconds
     
     def load_cache(self) -> None:
         """Load location cache from file."""
@@ -87,50 +101,62 @@ class LocationService:
                 self.api_url,
                 params=params,
                 headers=self.headers,
-                timeout=10
+                timeout=self.timeout
             )
+            response.raise_for_status()
             
-            if response.status_code == 200:
-                data = response.json()
-                self.logger.debug(f"API response for {latitude},{longitude}: {data}")
-                return self._format_location(data)
-            else:
-                self.logger.warning(f"Nominatim API returned status {response.status_code} for {latitude},{longitude}")
-                self.logger.debug(f"Response content: {response.text}")
-                return None
+            data = response.json()
+            return self._extract_location_string(data)
                 
-        except requests.RequestException as e:
-            self.logger.error(f"Error making reverse geocoding request: {e}")
+        except requests.exceptions.RequestException as e:
+            self.logger.warning(f"Geocoding request failed: {e}")
+            return None
+        except (json.JSONDecodeError, KeyError) as e:
+            self.logger.error(f"Error parsing geocoding response: {e}")
             return None
         except Exception as e:
-            self.logger.error(f"Unexpected error in reverse geocoding: {e}")
-            return None
+            raise GeoccodingError(f"Unexpected error during geocoding: {e}")
+        
+        return None
     
-    def _format_location(self, api_data: Dict[str, Any]) -> Optional[str]:
-        """Format location data into 'City, CC' format."""
-        try:
-            address = api_data.get('address', {})
-            
-            # Try to get city name (prefer city, then town, then village, then county, then state)
-            city = (address.get('city') or 
-                   address.get('town') or 
-                   address.get('village') or 
-                   address.get('municipality') or
-                   address.get('county') or
-                   address.get('state'))
-            
-            # Get country code
-            country_code = address.get('country_code', '').upper()
-            
-            if city and country_code:
-                return f"{city}, {country_code}"
-            else:
-                self.logger.debug(f"Could not extract city/country from address: {address}")
-                return None
-                
-        except Exception as e:
-            self.logger.error(f"Error formatting location data: {e}")
-            return None
+    def _apply_rate_limit(self) -> None:
+        """Apply rate limiting to respect API usage policies."""
+        current_time = time.time()
+        time_since_last_request = current_time - self.last_request_time
+        
+        if time_since_last_request < self.min_request_interval:
+            sleep_time = self.min_request_interval - time_since_last_request
+            self.logger.debug(f"Rate limiting: sleeping for {sleep_time:.2f} seconds")
+            time.sleep(sleep_time)
+        
+        self.last_request_time = time.time()
+    
+    def _extract_location_string(self, data: Dict[str, Any]) -> Optional[str]:
+        """Extract location string from geocoding API response."""
+        address = data.get('address', {})
+        location_parts = []
+        
+        # Try to get city, state/province, country in that order
+        city = (address.get('city') or 
+               address.get('town') or 
+               address.get('village') or 
+               address.get('hamlet'))
+        
+        if city:
+            location_parts.append(city)
+        
+        state = (address.get('state') or 
+                address.get('province') or 
+                address.get('region'))
+        
+        if state:
+            location_parts.append(state)
+        
+        country = address.get('country')
+        if country:
+            location_parts.append(country)
+        
+        return ', '.join(location_parts) if location_parts else None
     
     def clear_cache(self) -> None:
         """Clear all cached location data."""
