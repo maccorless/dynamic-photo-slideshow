@@ -57,20 +57,20 @@ class GoogleVoiceRecognitionProvider(VoiceRecognitionProvider):
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.logger = logging.getLogger(__name__)
+        # Reuse single recognizer instance for better performance
+        self.recognizer = sr.Recognizer() if SPEECH_RECOGNITION_AVAILABLE else None
         
     def recognize_speech(self, audio_data) -> Optional[str]:
         """Recognize speech using Google's API."""
-        if not SPEECH_RECOGNITION_AVAILABLE:
+        if not SPEECH_RECOGNITION_AVAILABLE or not self.recognizer:
             return None
             
         try:
-            recognizer = sr.Recognizer()
-            
             # Apply audio normalization if pydub is available
             if PYDUB_AVAILABLE:
                 audio_data = self._normalize_audio(audio_data)
             
-            text = recognizer.recognize_google(audio_data).lower().strip()
+            text = self.recognizer.recognize_google(audio_data).lower().strip()
             self.logger.debug(f"Google recognition result: '{text}'")
             return text
             

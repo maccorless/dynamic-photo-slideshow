@@ -86,40 +86,66 @@ class DisplayManager:
     def _display_single_photo(self, photo_data: Dict[str, Any], location_string: Optional[str]) -> None:
         """Display a single photo with overlays."""
         try:
-            # Clear previous display
             self._clear_canvas_preserve_overlays()
             
-            image_path = photo_data.get('path')
-            if not image_path or not os.path.exists(image_path):
-                self._display_error_message(f"File not found:\n{os.path.basename(image_path)}")
+            if not self._validate_image_path(photo_data):
                 return
-
-            # Load and process image
-            image = Image.open(image_path)
-            image = self._apply_orientation_correction(image, photo_data.get('exif_orientation', 1))
-            display_image = self._resize_image_to_fit(image)
-            photo_image = ImageTk.PhotoImage(display_image)
             
-            # Center image on canvas
-            x = (self.screen_width - display_image.width) // 2
-            y = (self.screen_height - display_image.height) // 2
+            display_image, photo_image = self._load_and_process_image(photo_data)
+            if not display_image or not photo_image:
+                return
             
-            self.current_image_id = self.canvas.create_image(x, y, anchor=tk.NW, image=photo_image)
-            self.canvas.image = photo_image  # Keep a reference
+            self._center_and_display_image(display_image, photo_image)
+            self._add_overlays(photo_data, location_string, 
+                             (self.screen_width - display_image.width) // 2,
+                             (self.screen_height - display_image.height) // 2,
+                             display_image.width, display_image.height)
             
-            # Add overlays
-            self._add_overlays(photo_data, location_string, x, y, display_image.width, display_image.height)
+            self._finalize_display()
             
-            # Update display
-            self.root.update()
-            
-            # Show STOPPED overlay AFTER image is displayed if slideshow is paused
-            self._refresh_stopped_overlay()
-            
-        except Exception as e:
-            self.logger.error(f"Error displaying single photo: {e}")
-            # Display error message instead of black screen
+        except (OSError, IOError) as e:
+            self.logger.error(f"Error loading image file: {e}")
             self._display_error_message(f"Cannot load image: {os.path.basename(photo_data.get('path', 'Unknown'))}")
+        except (ValueError, TypeError) as e:
+            self.logger.error(f"Error processing image data: {e}")
+            self._display_error_message(f"Invalid image data: {os.path.basename(photo_data.get('path', 'Unknown'))}")
+        except Exception as e:
+            self.logger.exception(f"Unexpected error displaying single photo: {e}")
+            self._display_error_message(f"Cannot load image: {os.path.basename(photo_data.get('path', 'Unknown'))}")
+
+    def _validate_image_path(self, photo_data: Dict[str, Any]) -> bool:
+        """Validate that the image path exists."""
+        image_path = photo_data.get('path')
+        if not image_path or not os.path.exists(image_path):
+            self._display_error_message(f"File not found:\n{os.path.basename(image_path)}")
+            return False
+        return True
+    
+    def _load_and_process_image(self, photo_data: Dict[str, Any]) -> tuple[Optional[Image.Image], Optional[ImageTk.PhotoImage]]:
+        """Load and process image from photo data."""
+        try:
+            image_path = photo_data.get('path')
+            with Image.open(image_path) as image:
+                image = self._apply_orientation_correction(image, photo_data.get('exif_orientation', 1))
+                display_image = self._resize_image_to_fit(image)
+                photo_image = ImageTk.PhotoImage(display_image)
+                return display_image, photo_image
+        except (OSError, IOError, ValueError, TypeError) as e:
+            self.logger.error(f"Error processing image {image_path}: {e}")
+            return None, None
+    
+    def _center_and_display_image(self, display_image: Image.Image, photo_image: ImageTk.PhotoImage) -> None:
+        """Center and display the image on canvas."""
+        x = (self.screen_width - display_image.width) // 2
+        y = (self.screen_height - display_image.height) // 2
+        
+        self.current_image_id = self.canvas.create_image(x, y, anchor=tk.NW, image=photo_image)
+        self.canvas.image = photo_image  # Keep a reference
+    
+    def _finalize_display(self) -> None:
+        """Finalize the display by updating and showing overlays."""
+        self.root.update()
+        self._refresh_stopped_overlay()
 
     def _display_paired_photos(self, photo_pair: List[Dict[str, Any]], location_string: Optional[str]) -> None:
         """Display two portrait photos side-by-side."""
@@ -142,26 +168,30 @@ class DisplayManager:
                 
                 try:
                     # Load and process image
-                    image = Image.open(image_path)
-                    image = self._apply_orientation_correction(image, photo_data.get('exif_orientation', 1))
-                    
-                    # Scale to fit half screen
-                    img_width, img_height = image.size
-                    aspect_ratio = img_width / img_height
-                    
-                    if target_width / aspect_ratio <= target_height:
-                        new_width = target_width
-                        new_height = int(new_width / aspect_ratio)
-                    else:
-                        new_height = target_height
-                        new_width = int(new_height * aspect_ratio)
-                    
-                    display_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                    with Image.open(image_path) as image:
+                        image = self._apply_orientation_correction(image, photo_data.get('exif_orientation', 1))
+                        
+                        # Scale to fit half screen
+                        img_width, img_height = image.size
+                        aspect_ratio = img_width / img_height
+                        
+                        if target_width / aspect_ratio <= target_height:
+                            new_width = target_width
+                            new_height = int(new_width / aspect_ratio)
+                        else:
+                            new_height = target_height
+                            new_width = int(new_height * aspect_ratio)
+                        
+                        display_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
                     images.append((display_image, photo_data))
                     
-                except Exception as e:
-                    self.logger.error(f"Error processing paired photo {i}: {e}")
+                except (OSError, IOError) as e:
+                    self.logger.error(f"Error loading paired photo {i}: {e}")
                     error_img = self._create_error_image("Error loading image")
+                    images.append((error_img, photo_data))
+                except (ValueError, TypeError) as e:
+                    self.logger.error(f"Error processing paired photo {i}: {e}")
+                    error_img = self._create_error_image("Invalid image data")
                     images.append((error_img, photo_data))
             
             # Display images side by side
@@ -203,8 +233,14 @@ class DisplayManager:
             # Show STOPPED overlay AFTER images are displayed if slideshow is paused
             self._refresh_stopped_overlay()
             
+        except (OSError, IOError) as e:
+            self.logger.error(f"Error loading paired photos: {e}")
+            self._display_error_message(f"Cannot load photo pair")
+        except (ValueError, TypeError) as e:
+            self.logger.error(f"Error processing paired photos: {e}")
+            self._display_error_message(f"Invalid photo pair data")
         except Exception as e:
-            self.logger.error(f"Error displaying paired photos: {e}")
+            self.logger.exception(f"Unexpected error displaying paired photos: {e}")
             self._display_error_message(f"Cannot load photo pair")
 
     def _apply_orientation_correction(self, image: Image.Image, orientation: int) -> Image.Image:

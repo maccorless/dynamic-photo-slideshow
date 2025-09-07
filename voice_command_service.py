@@ -287,9 +287,13 @@ class VoiceCommandService:
         Returns:
             dict: Status information
         """
+        available_commands = []
+        if self.command_matcher:
+            available_commands = self.command_matcher.get_available_commands()
+        
         return {
             'available': SPEECH_RECOGNITION_AVAILABLE,
             'enabled': self.is_enabled,
             'listening': self.is_listening,
-            'commands': list(self.command_keywords.keys())
+            'commands': available_commands
         }

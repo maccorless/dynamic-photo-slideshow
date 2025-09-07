@@ -12,7 +12,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 from path_config import PathConfig
-from slideshow_exceptions import LocationServiceError, GeoccodingError
+from slideshow_exceptions import LocationServiceError, GeocodingError
 
 
 class LocationService:
@@ -86,8 +86,11 @@ class LocationService:
         return location_string
     
     def _reverse_geocode(self, latitude: float, longitude: float) -> Optional[str]:
-        """Perform reverse geocoding using Nominatim API."""
+        """Perform reverse geocoding using Nominatim API with rate limiting."""
         try:
+            # Apply rate limiting before making request
+            self._apply_rate_limit()
+            
             params = {
                 'lat': latitude,
                 'lon': longitude,
@@ -105,6 +108,9 @@ class LocationService:
             )
             response.raise_for_status()
             
+            # Update last request time for rate limiting
+            self.last_request_time = time.time()
+            
             data = response.json()
             return self._extract_location_string(data)
                 
@@ -115,7 +121,7 @@ class LocationService:
             self.logger.error(f"Error parsing geocoding response: {e}")
             return None
         except Exception as e:
-            raise GeoccodingError(f"Unexpected error during geocoding: {e}")
+            raise GeocodingError(f"Unexpected error during geocoding: {e}")
         
         return None
     

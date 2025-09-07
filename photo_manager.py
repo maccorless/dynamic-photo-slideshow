@@ -29,7 +29,7 @@ class PhotoManager:
         # Handle both config file path and config dict
         if isinstance(config_path_or_dict, str):
             from config import SlideshowConfig
-            self.config = SlideshowConfig(path_config)
+            self.config = SlideshowConfig.from_file(config_path_or_dict, path_config)
         else:
             self.config = config_path_or_dict
             

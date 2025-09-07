@@ -55,7 +55,7 @@ class LocationServiceError(SlideshowError):
     pass
 
 
-class GeoccodingError(LocationServiceError):
+class GeocodingError(LocationServiceError):
     """Raised when geocoding requests fail."""
     pass
 

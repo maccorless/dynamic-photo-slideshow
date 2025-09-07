@@ -79,6 +79,14 @@ class SlideshowConfig:
         self.config = self.DEFAULT_CONFIG.copy()
         self.logger = logging.getLogger(__name__)
     
+    @classmethod
+    def from_file(cls, config_file_path: str, path_config: Optional[PathConfig] = None) -> 'SlideshowConfig':
+        """Factory method to create SlideshowConfig from a specific file path."""
+        instance = cls(path_config)
+        instance.config_path = Path(config_file_path)
+        instance.load_config()
+        return instance
+    
     def load_config(self) -> None:
         """Load configuration from file, using defaults for missing/invalid values."""
         try:
