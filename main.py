@@ -6,7 +6,6 @@ A fullscreen photo slideshow that connects to Apple Photos with intelligent layo
 
 import sys
 import logging
-import sys
 from pathlib import Path
 
 from config import SlideshowConfig

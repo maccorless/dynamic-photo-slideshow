@@ -117,9 +117,7 @@ def test_slideshow_controller_video_integration():
             overlays = controller._create_video_overlays(test_video, 0, 10, "Test Location")
             logger.info(f"✅ Video overlays created: {len(overlays)} overlays")
             
-            # Test video control methods
-            controller.pause_video()
-            controller.resume_video()
+            # Test video control methods (pause/resume removed with ffplay transition)
             controller.stop_video()
             logger.info("✅ Video control methods working")
             

@@ -36,27 +36,38 @@ class DisplayManager:
     def __init__(self, config):
         self.config = config
         self.logger = logging.getLogger(__name__)
+        
+        # Initialize video-related attributes
+        self.video_manager = None
+        self.video_thread = None
+        self.video_process = None  # ffplay subprocess
+        self.video_playing = False
+        self.video_stop_event = threading.Event()
+        self.audio_process = None
+        self.audio_thread = None
+        self.video_complete_callback = None
+        self.video_overlay_id = None
+        
+        # Initialize video support
+        try:
+            from video_manager import VideoManager
+            self.video_manager = VideoManager(self.logger)
+            self.logger.info("Video support initialized")
+        except Exception as e:
+            self.logger.warning(f"Video support not available: {e}")
+        
+        # Initialize display components
         self.root = None
-        self.screen_width = 0
-        self.screen_height = 0
         self.canvas = None
         self.current_image_id = None
         self.overlay_labels = []
+        self.screen_width = 0
+        self.screen_height = 0
+        
+        # Countdown timer attributes (simplified)
         self.countdown_overlay_id = None
-        self.stopped_overlay_id = None
-        self.controller_ref = None
         
-        # Video playback components
-        self.video_manager = None
-        self.current_video_cap = None
-        self.video_thread = None
-        self.video_playing = False
-        self.video_paused = False
-        self.video_stop_event = threading.Event()
-        
-        # Initialize video support if available
-        self._initialize_video_support()
-        
+        # Initialize display
         self._setup_display()
 
     def _setup_display(self) -> None:
@@ -97,17 +108,17 @@ class DisplayManager:
         
         self.logger.info(f"Display initialized: {self.screen_width}x{self.screen_height}")
 
-    def display_photo(self, photo_data, location_string: Optional[str] = None) -> None:
+    def display_photo(self, photo_data, location_string: Optional[str] = None, slideshow_timer: Optional[int] = None) -> None:
         """Display a photo or a pair of photos."""
         try:
             if isinstance(photo_data, list) and len(photo_data) == 2:
-                self._display_paired_photos(photo_data, location_string)
+                self._display_paired_photos(photo_data, location_string, slideshow_timer)
             else:
-                self._display_single_photo(photo_data, location_string)
+                self._display_single_photo(photo_data, location_string, slideshow_timer)
         except Exception as e:
             self.logger.error(f"Error in display_photo: {e}")
 
-    def _display_single_photo(self, photo_data: Dict[str, Any], location_string: Optional[str]) -> None:
+    def _display_single_photo(self, photo_data: Dict[str, Any], location_string: Optional[str], slideshow_timer: Optional[int] = None) -> None:
         """Display a single photo with overlays."""
         try:
             self._clear_canvas_preserve_overlays()
@@ -171,7 +182,7 @@ class DisplayManager:
         self.root.update()
         self._refresh_stopped_overlay()
 
-    def _display_paired_photos(self, photo_pair: List[Dict[str, Any]], location_string: Optional[str]) -> None:
+    def _display_paired_photos(self, photo_pair: List[Dict[str, Any]], location_string: Optional[str], slideshow_timer: Optional[int] = None) -> None:
         """Display two portrait photos side-by-side."""
         try:
             # Clear previous display
@@ -490,13 +501,10 @@ class DisplayManager:
                 anchor=tk.N
             )
             
-            # Safe deletion that won't affect countdown timer
+            # Safe deletion of filename overlay
             def safe_delete_filename_overlay():
                 try:
-                    # Only delete if the overlay still exists and isn't the countdown timer
-                    if (overlay_id in self.canvas.find_all() and 
-                        overlay_id != getattr(self, 'countdown_overlay_id', None) and
-                        overlay_id != getattr(self, 'stopped_overlay_id', None)):
+                    if overlay_id in self.canvas.find_all():
                         self.canvas.delete(overlay_id)
                 except Exception as e:
                     self.logger.debug(f"Error deleting filename overlay: {e}")
@@ -518,19 +526,16 @@ class DisplayManager:
             # Create voice command overlay with distinctive styling
             overlay_id = self.canvas.create_text(
                 text_x, text_y,
-                text=f"🎤 {command.upper()}",
+                text=f" {command.upper()}",
                 font=('Arial', font_size, 'bold'),
                 fill='lime',
                 anchor=tk.S
             )
             
-            # Safe deletion that won't affect countdown timer
+            # Safe deletion of voice overlay
             def safe_delete_voice_overlay():
                 try:
-                    # Only delete if the overlay still exists and isn't the countdown timer
-                    if (overlay_id in self.canvas.find_all() and 
-                        overlay_id != getattr(self, 'countdown_overlay_id', None) and
-                        overlay_id != getattr(self, 'stopped_overlay_id', None)):
+                    if overlay_id in self.canvas.find_all():
                         self.canvas.delete(overlay_id)
                 except Exception as e:
                     self.logger.debug(f"Error deleting voice overlay: {e}")
@@ -555,7 +560,7 @@ class DisplayManager:
             # Create persistent STOPPED overlay
             self.stopped_overlay_id = self.canvas.create_text(
                 text_x, text_y,
-                text="⏹️ STOPPED",
+                text=" STOPPED",
                 font=('Arial', font_size, 'bold'),
                 fill='red',
                 anchor=tk.S
@@ -574,85 +579,70 @@ class DisplayManager:
             self.logger.error(f"Error clearing stopped overlay: {e}")
     
     def _clear_canvas_preserve_overlays(self) -> None:
-        """Clear canvas but preserve countdown timer by using tags."""
+        """Clear canvas but preserve persistent overlays using tags."""
         try:
             # Clear only image-related items, not persistent overlays
             if hasattr(self, 'current_image_id') and self.current_image_id:
                 self.canvas.delete(self.current_image_id)
                 self.current_image_id = None
             
-            # Clear all items except countdown timer and stopped overlay
+            # Clear all items except tagged persistent overlays
             all_items = self.canvas.find_all()
             for item in all_items:
-                # Keep countdown timer and stopped overlay
-                if (hasattr(self, 'countdown_overlay_id') and item == self.countdown_overlay_id):
+                # Get tags for this item
+                tags = self.canvas.gettags(item)
+                # Keep items with persistent tags
+                if any(tag in ['countdown', 'stopped_overlay'] for tag in tags):
                     continue
-                if (hasattr(self, 'stopped_overlay_id') and item == self.stopped_overlay_id):
-                    continue
-                # Delete everything else (images, overlays, backgrounds)
                 self.canvas.delete(item)
-            
-            # Reset only the image ID, keep overlay IDs intact
-            self.current_image_id = None
                 
         except Exception as e:
             self.logger.error(f"Error clearing canvas: {e}")
-            # Fallback to clearing everything except countdown
+            # Fallback - clear everything except tagged items
             try:
-                countdown_id = getattr(self, 'countdown_overlay_id', None)
-                stopped_id = getattr(self, 'stopped_overlay_id', None)
                 self.canvas.delete("all")
+                # Don't delete tagged persistent overlays
+                for tag in ['countdown', 'stopped_overlay']:
+                    # These will be preserved automatically by tag-based approach
+                    pass
                 self.current_image_id = None
-                # Reset overlay IDs if they were cleared
-                if countdown_id and countdown_id not in self.canvas.find_all():
-                    self.countdown_overlay_id = None
-                if stopped_id and stopped_id not in self.canvas.find_all():
-                    self.stopped_overlay_id = None
             except:
                 self.canvas.delete("all")
                 self.current_image_id = None
-                self.countdown_overlay_id = None
-                self.stopped_overlay_id = None
     
-    def update_countdown_timer(self, seconds_remaining: int) -> None:
-        """Update countdown timer display in lower right corner."""
+    def show_countdown(self, remaining_seconds: int) -> None:
+        """Show countdown timer display in top-right corner."""
         try:
-            # Check if countdown timer is enabled
             if not self.config.get('show_countdown_timer', False):
                 return
-            
-            # Clear existing countdown overlay
-            if hasattr(self, 'countdown_overlay_id') and self.countdown_overlay_id:
-                self.canvas.delete(self.countdown_overlay_id)
-                self.countdown_overlay_id = None
-            
-            # Don't show countdown if paused or stopped
-            if seconds_remaining <= 0:
+                
+            if not self.canvas or not self.canvas.winfo_exists():
                 return
             
-            # Position countdown in lower right corner
-            font_size = 18
-            text_x = self.screen_width - 20
-            text_y = self.screen_height - 20
+            # Clear previous countdown
+            self.canvas.delete("countdown")
             
-            # Create countdown overlay
-            self.countdown_overlay_id = self.canvas.create_text(
-                text_x, text_y,
-                text=f"{seconds_remaining}s",
-                font=('Arial', font_size),
+            # Don't show countdown if paused or stopped
+            if remaining_seconds <= 0:
+                return
+            
+            # Show countdown in top-right corner
+            countdown_text = f"{remaining_seconds}s"
+            self.canvas.create_text(
+                self.screen_width - 50, 50,
+                text=countdown_text,
+                font=('Arial', 24, 'bold'),
                 fill='white',
-                anchor=tk.SE
+                tags="countdown"
             )
-            
         except Exception as e:
-            self.logger.error(f"Error updating countdown timer: {e}")
+            self.logger.error(f"Error showing countdown: {e}")
     
     def clear_countdown_timer(self) -> None:
-        """Clear the countdown timer display."""
+        """Clear countdown timer display."""
         try:
-            if hasattr(self, 'countdown_overlay_id') and self.countdown_overlay_id:
-                self.canvas.delete(self.countdown_overlay_id)
-                self.countdown_overlay_id = None
+            if self.canvas and self.canvas.winfo_exists():
+                self.canvas.delete("countdown")
         except Exception as e:
             self.logger.error(f"Error clearing countdown timer: {e}")
     
@@ -708,23 +698,18 @@ class DisplayManager:
         """Check if video playback is supported and enabled."""
         return self.video_manager is not None
     
+    def is_video_playing(self) -> bool:
+        """Check if video is currently playing."""
+        return self.video_playing
+    
     def display_video(self, video_path: str, overlays: Optional[List[Dict[str, Any]]] = None) -> bool:
-        """
-        Display a video file with optional overlays.
-        
-        Args:
-            video_path: Path to the video file
-            overlays: Optional list of overlay dictionaries
-            
-        Returns:
-            True if video playback started successfully, False otherwise
-        """
+        """Display video content with overlays."""
         if not self.is_video_supported():
             self.logger.warning("Video playback not supported")
             return False
-        
+            
         try:
-            # Stop any existing video
+            # Stop any currently playing video
             self.stop_video()
             
             # Validate video file
@@ -738,156 +723,196 @@ class DisplayManager:
                 self.logger.error(f"Cannot read video metadata: {video_path}")
                 return False
             
-            # Check video duration against config limits
-            max_duration = self.config.get('video_max_duration', 30)
+            # Check duration limits
+            max_duration = self.config.get('video_max_duration', 15)
             if metadata.get('duration', 0) > max_duration:
-                self.logger.warning(f"Video duration {metadata.get('duration')}s exceeds limit {max_duration}s")
-                # Could truncate or skip, for now we'll play it anyway
+                self.logger.info(f"Video duration {metadata.get('duration')}s will be limited to {max_duration}s")
             
             # Clear existing display
             self._clear_display()
             
             # Add overlays if provided
             if overlays:
-                self._add_overlays(overlays)
+                # Get screen dimensions for overlay positioning
+                screen_width = self.root.winfo_screenwidth()
+                screen_height = self.root.winfo_screenheight()
+                location_string = overlays.get('location_string') if isinstance(overlays, dict) else None
+                video_data = overlays if isinstance(overlays, dict) else {}
+                self._add_video_overlays(video_data, location_string, 0, 0, screen_width, screen_height)
             
-            # Start video playback in separate thread
-            self.video_stop_event.clear()
-            self.video_thread = threading.Thread(
-                target=self._video_playback_thread,
-                args=(video_path, metadata),
-                daemon=True
-            )
-            self.video_thread.start()
+            # Start audio playback if enabled
+            if self.config.get('video_audio_enabled', True):
+                self._start_video_audio(video_path, metadata)
             
-            return True
+            # Use new ffplay-based video playback
+            return self._start_full_video_playback(video_path, metadata)
             
         except Exception as e:
             self.logger.error(f"Failed to start video playback: {e}")
             return False
     
-    def _video_playback_thread(self, video_path: str, metadata: Dict[str, Any]) -> None:
-        """Thread function for video playback using OpenCV."""
+    def _start_full_video_playback(self, video_path: str, metadata: Dict[str, Any]) -> bool:
+        """Start full video playback using ffplay for smooth native rendering."""
+        import subprocess
+        import time
         try:
-            cap = cv2.VideoCapture(video_path)
-            if not cap.isOpened():
-                self.logger.error(f"Cannot open video: {video_path}")
-                return
+            # Stop any existing video first
+            self.stop_video()
             
-            self.current_video_cap = cap
-            self.video_playing = True
+            video_duration = metadata.get('duration', 0)
+            max_duration = self.config.get('video_max_duration', 15)
+            actual_duration = min(video_duration, max_duration)
             
-            # Get video properties
-            fps = metadata.get('fps', 30)
-            frame_delay = 1.0 / fps if fps > 0 else 1.0 / 30
+            self.logger.info(f"Playing video with ffplay: {video_path} ({video_duration:.1f}s, limited to {actual_duration:.1f}s)")
             
-            self.logger.info(f"Playing video: {video_path} ({metadata.get('duration', 0):.1f}s, {fps:.1f} fps)")
+            # Clear canvas completely for video display
+            self._clear_display()
             
-            while not self.video_stop_event.is_set():
-                ret, frame = cap.read()
-                if not ret:
-                    # End of video
-                    break
-                
-                if self.video_paused:
-                    time.sleep(0.1)
-                    continue
-                
-                # Convert frame from BGR to RGB
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                
-                # Resize frame to fit screen while maintaining aspect ratio
-                frame_resized = self._resize_video_frame(frame_rgb)
-                
-                # Convert to PIL Image and then to PhotoImage
-                pil_image = Image.fromarray(frame_resized)
-                photo_image = ImageTk.PhotoImage(pil_image)
-                
-                # Update display on main thread
-                self.root.after(0, self._update_video_frame, photo_image)
-                
-                # Control playback speed
-                time.sleep(frame_delay)
+            # Reset video state
+            self.video_stop_event.clear()
+            
+            # Get window position for video player
+            self.root.update_idletasks()  # Ensure window geometry is current
+            window_x = self.root.winfo_rootx()
+            window_y = self.root.winfo_rooty()
+            
+            # Start ffplay video playback
+            def play_video():
+                try:
+                    self.video_playing = True
+                    
+                    # Hide Tkinter window during video playback to prevent blocking
+                    self.root.withdraw()
+                    
+                    # ffplay command for fullscreen video
+                    ffplay_cmd = [
+                        'ffplay',
+                        '-i', video_path,
+                        '-fs',  # Use fullscreen mode
+                        '-autoexit',
+                        '-loglevel', 'quiet'
+                    ]
+                    
+                    # Start ffplay process
+                    self.video_process = subprocess.Popen(
+                        ffplay_cmd,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+                    
+                    # Monitor playback duration
+                    start_time = time.time()
+                    while self.video_playing and not self.video_stop_event.is_set():
+                        # Check if process ended naturally
+                        if self.video_process.poll() is not None:
+                            self.logger.info("Video playback completed naturally")
+                            break
+                        
+                        # Check duration limit
+                        elapsed = time.time() - start_time
+                        if elapsed >= actual_duration:
+                            self.logger.info(f"Video duration limit reached ({actual_duration:.1f}s)")
+                            # Terminate ffplay
+                            self.video_process.terminate()
+                            try:
+                                self.video_process.wait(timeout=2)
+                            except subprocess.TimeoutExpired:
+                                self.video_process.kill()
+                            break
+                        
+                        time.sleep(0.1)  # Check every 100ms
+                    
+                    # Signal completion
+                    self.root.after(0, self._on_video_complete)
+                    
+                except Exception as e:
+                    self.logger.error(f"ffplay video playback error: {e}")
+                    self.root.after(0, self._on_video_complete)
+                finally:
+                    self.video_playing = False
+                    # Restore Tkinter window after video
+                    self.root.after(0, lambda: self.root.deiconify())
+                    # Ensure process is cleaned up
+                    if hasattr(self, 'video_process') and self.video_process:
+                        try:
+                            if self.video_process.poll() is None:
+                                self.video_process.terminate()
+                                self.video_process.wait(timeout=2)
+                        except:
+                            pass
+                        self.video_process = None
+            
+            # Start video playback in separate thread
+            self.video_thread = threading.Thread(target=play_video, daemon=True)
+            self.video_thread.start()
+            
+            # Don't add overlays here - they should be added by the caller
+            
+            return True
             
         except Exception as e:
-            self.logger.error(f"Video playback error: {e}")
-        finally:
-            if cap:
-                cap.release()
-            self.current_video_cap = None
-            self.video_playing = False
-            self.logger.info("Video playback finished")
+            self.logger.error(f"Error starting ffplay video playback: {e}")
+            return False
     
-    def _resize_video_frame(self, frame_rgb) -> any:
-        """Resize video frame to fit screen while maintaining aspect ratio."""
-        frame_height, frame_width = frame_rgb.shape[:2]
-        
-        # Calculate scaling to fit screen
-        width_ratio = self.screen_width / frame_width
-        height_ratio = self.screen_height / frame_height
-        scale_ratio = min(width_ratio, height_ratio)
-        
-        # Calculate new dimensions
-        new_width = int(frame_width * scale_ratio)
-        new_height = int(frame_height * scale_ratio)
-        
-        # Resize frame
-        resized_frame = cv2.resize(frame_rgb, (new_width, new_height), interpolation=cv2.INTER_AREA)
-        
-        # Create black background
-        background = np.zeros((self.screen_height, self.screen_width, 3), dtype=np.uint8)
-        
-        # Center the resized frame
-        y_offset = (self.screen_height - new_height) // 2
-        x_offset = (self.screen_width - new_width) // 2
-        background[y_offset:y_offset+new_height, x_offset:x_offset+new_width] = resized_frame
-        
-        return background
+    # Old OpenCV video playback method removed - now using ffplay
     
-    def _update_video_frame(self, photo_image) -> None:
-        """Update the canvas with a new video frame (called on main thread)."""
-        if self.canvas and self.video_playing:
-            # Clear previous frame
-            if self.current_image_id:
-                self.canvas.delete(self.current_image_id)
-            
-            # Display new frame
-            self.current_image_id = self.canvas.create_image(
-                self.screen_width // 2,
-                self.screen_height // 2,
-                image=photo_image,
-                anchor=tk.CENTER
-            )
-            
-            # Keep reference to prevent garbage collection
-            self.canvas.image = photo_image
+    # _resize_video_frame method removed - ffplay handles video scaling
+    
+    # OpenCV video playback method removed - using ffplay instead
+    
+    # _update_video_frame method removed - ffplay handles video rendering
     
     def stop_video(self) -> None:
-        """Stop video playback."""
-        if self.video_playing:
+        """Stop video playback if currently playing."""
+        try:
+            self.logger.info("Stopping video playback...")
+            
+            # Signal stop to video thread
             self.video_stop_event.set()
-            if self.video_thread and self.video_thread.is_alive():
-                self.video_thread.join(timeout=1.0)
-            
-            if self.current_video_cap:
-                self.current_video_cap.release()
-                self.current_video_cap = None
-            
             self.video_playing = False
-            self.video_paused = False
-            self.logger.info("Video playback stopped")
+            
+            # Stop ffplay process if running
+            if hasattr(self, 'video_process') and self.video_process:
+                import subprocess
+                try:
+                    if self.video_process.poll() is None:
+                        self.video_process.terminate()
+                        self.video_process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    try:
+                        self.video_process.kill()
+                        self.video_process.wait(timeout=1)
+                    except:
+                        pass
+                except Exception as e:
+                    self.logger.debug(f"Error terminating video process: {e}")
+                finally:
+                    self.video_process = None
+            
+            # Stop audio playback
+            self._stop_audio_playback()
+            
+            # Clear all video-related UI elements
+            self._clear_video_overlays()
+            self.clear_countdown_timer()
+            
+            # Clear any scheduled callbacks
+            try:
+                if hasattr(self, 'canvas') and self.canvas:
+                    self.canvas.delete("video_countdown")
+                    self.canvas.delete("loading")
+            except:
+                pass
+            
+            self.logger.info("Video playback stopped successfully")
+                
+        except Exception as e:
+            self.logger.error(f"Error stopping video: {e}")
+            # Force cleanup even if there are errors
+            self.video_playing = False
+            self.video_stop_event.set()
     
-    def pause_video(self) -> None:
-        """Pause video playback."""
-        if self.video_playing:
-            self.video_paused = True
-            self.logger.info("Video playback paused")
-    
-    def resume_video(self) -> None:
-        """Resume video playback."""
-        if self.video_playing and self.video_paused:
-            self.video_paused = False
-            self.logger.info("Video playback resumed")
+    # resume_video method removed - ffplay doesn't support pause/resume
     
     def _clear_display(self) -> None:
         """Clear the display canvas and overlays."""
@@ -896,9 +921,248 @@ class DisplayManager:
                 self.canvas.delete("all")
             self.clear_overlays()
             self.current_image_id = None
+            self.video_overlay_id = None
         except Exception as e:
             self.logger.error(f"Error clearing display: {e}")
     
+    def _add_video_overlays(self, video_data: Dict[str, Any], location_string: Optional[str], 
+                           x: int, y: int, width: int, height: int) -> None:
+        """Add overlays for video content using same positioning as photos."""
+        try:
+            overlay_texts = []
+            
+            # Format date if available
+            if video_data.get('date_taken'):
+                date_str = video_data['date_taken'].strftime('%B %d, %Y')
+                overlay_texts.append(date_str)
+            
+            # Add location if available
+            if location_string:
+                overlay_texts.append(location_string)
+            
+            # Add video duration
+            if video_data.get('duration'):
+                duration = video_data['duration']
+                duration_str = f"{duration:.1f}s"
+                overlay_texts.append(duration_str)
+            
+            if not overlay_texts:
+                return
+            
+            # Combine overlay texts
+            overlay_text = " • ".join(overlay_texts)
+            
+            # Position overlay at bottom center of screen for video
+            overlay_x = self.screen_width // 2
+            overlay_y = self.screen_height - 50
+            
+            # Create text overlay with background (store ID for later removal)
+            self.video_overlay_id = self.canvas.create_text(
+                overlay_x, overlay_y,
+                text=overlay_text,
+                font=('Arial', 18, 'bold'),
+                fill='white',
+                anchor=tk.S,
+                tags="video_overlay"
+            )
+            
+            self.logger.info(f"Added video overlay: {overlay_text}")
+            
+        except Exception as e:
+            self.logger.error(f"Error adding video overlays: {e}")
+    
+    def _ensure_video_overlays_on_top(self) -> None:
+        """Ensure video overlays remain visible on top of video frames."""
+        try:
+            # Move all video overlay elements to the top
+            for tag in ["video_overlay", "video_countdown"]:
+                items = self.canvas.find_withtag(tag)
+                for item in items:
+                    self.canvas.tag_raise(item)
+        except Exception as e:
+            self.logger.debug(f"Error ensuring overlays on top: {e}")
+
+    def _on_video_complete(self) -> None:
+        """Called when video playback completes naturally."""
+        try:
+            self.logger.info("Video playback completed")
+            # Clear video countdown timer and overlays
+            self.canvas.delete("video_countdown")
+            self.canvas.delete("video_overlay")
+            self.video_playing = False
+            # Remove video overlays
+            self._clear_video_overlays()
+            # Notify slideshow controller that video is done
+            if hasattr(self, 'video_complete_callback') and self.video_complete_callback:
+                self.video_complete_callback()
+        except Exception as e:
+            self.logger.error(f"Error handling video completion: {e}")
+    
+    def set_video_complete_callback(self, callback):
+        """Set callback to be called when video playback completes."""
+        self.video_complete_callback = callback
+    
+    def _start_video_audio(self, video_path: str, metadata: Dict[str, Any]) -> None:
+        """Start audio playback for video using system commands."""
+        try:
+            import subprocess
+            import threading
+            
+            # Get duration limit
+            max_duration = self.config.get('video_max_duration', 15)
+            video_duration = metadata.get('duration', 0)
+            actual_duration = min(video_duration, max_duration)
+            
+            # Use afplay on macOS to play audio
+            def play_audio():
+                try:
+                    # Start afplay process
+                    cmd = ['afplay', video_path]
+                    self.audio_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    
+                    # Wait for the duration limit or until stopped
+                    try:
+                        self.audio_process.wait(timeout=actual_duration)
+                    except subprocess.TimeoutExpired:
+                        # Duration limit reached, terminate audio
+                        self.audio_process.terminate()
+                        try:
+                            self.audio_process.wait(timeout=1)
+                        except subprocess.TimeoutExpired:
+                            self.audio_process.kill()
+                    
+                except Exception as e:
+                    self.logger.error(f"Audio playback error: {e}")
+                finally:
+                    self.audio_process = None
+            
+            # Start audio in separate thread
+            self.audio_thread = threading.Thread(target=play_audio, daemon=True)
+            self.audio_thread.start()
+            
+            self.logger.info(f"Started audio playback for {actual_duration:.1f}s")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to start audio playback: {e}")
+    
+    def _stop_audio_playback(self) -> None:
+        """Stop audio playback if currently running."""
+        try:
+            if hasattr(self, 'audio_process') and self.audio_process:
+                import subprocess
+                try:
+                    if self.audio_process.poll() is None:
+                        self.audio_process.terminate()
+                        self.audio_process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    try:
+                        self.audio_process.kill()
+                        self.audio_process.wait(timeout=1)
+                    except:
+                        pass
+                except Exception as e:
+                    self.logger.debug(f"Error stopping audio process: {e}")
+                finally:
+                    self.audio_process = None
+            
+            # Wait for audio thread to complete
+            if hasattr(self, 'audio_thread') and self.audio_thread and self.audio_thread.is_alive():
+                try:
+                    self.audio_thread.join(timeout=1)
+                except:
+                    pass
+                self.audio_thread = None
+                
+        except Exception as e:
+            self.logger.error(f"Error stopping audio playback: {e}")
+    
+    def _clear_video_overlays(self) -> None:
+        """Clear video-specific overlays."""
+        try:
+            # Clear by tag to ensure all video overlays are removed
+            self.canvas.delete("video_overlay")
+            if self.video_overlay_id and self.canvas:
+                self.canvas.delete(self.video_overlay_id)
+                self.video_overlay_id = None
+        except Exception as e:
+            self.logger.error(f"Error clearing video overlays: {e}")
+
+    def display_video_with_overlays(self, video_path: str, video_data: Dict[str, Any], location_string: Optional[str]) -> bool:
+        """Display video with overlays using full video playback."""
+        try:
+            # Get metadata for video
+            if not self.is_video_supported():
+                self.logger.warning("Video playback not supported")
+                return False
+            
+            metadata = self.video_manager.get_video_metadata(video_path)
+            if not metadata or not metadata.get('is_valid', False):
+                self.logger.error(f"Cannot read video metadata: {video_path}")
+                return False
+            
+            # Start full video playback
+            success = self._start_full_video_playback(video_path, metadata)
+            
+            # Add overlays after video starts to prevent clearing
+            if success:
+                screen_width = self.root.winfo_screenwidth()
+                screen_height = self.root.winfo_screenheight()
+                # Delay overlay creation to ensure video is displaying
+                self.root.after(100, lambda: self._add_video_overlays(video_data, location_string, 0, 0, screen_width, screen_height))
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Error displaying video with overlays: {e}")
+            return False
+
+
+    def show_loading_message(self, message: str) -> None:
+        """Show a loading message overlay."""
+        try:
+            self.canvas.delete("loading")
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            
+            self.canvas.create_text(
+                screen_width // 2, screen_height // 2,
+                text=message,
+                font=('Arial', 24, 'bold'),
+                fill='white',
+                tags="loading"
+            )
+            self.root.update()
+        except Exception as e:
+            self.logger.error(f"Error showing loading message: {e}")
+
+    
+    def _show_video_thumbnail(self, video_path: str) -> None:
+        """Show video thumbnail/first frame."""
+        try:
+            cap = cv2.VideoCapture(video_path)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret:
+                    # Simple black screen placeholder - ffplay will handle actual video display
+                    self._clear_display()
+                cap.release()
+        except Exception as e:
+            self.logger.debug(f"Could not show video thumbnail: {e}")
+    
+    # Video countdown methods removed - videos don't use countdown timers
+
+    # Duplicate show_countdown method removed - consolidated above
+
+    def destroy(self) -> None:
+        """Clean up display manager resources."""
+        self.stop_video()
+        if hasattr(self, 'root') and self.root:
+            try:
+                self.root.quit()
+                self.root.destroy()
+            except Exception as e:
+                print(f"Error destroying display manager: {e}")
+
     def clear_overlays(self) -> None:
         """Clear all overlay elements."""
         try:

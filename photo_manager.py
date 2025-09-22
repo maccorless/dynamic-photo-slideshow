@@ -639,26 +639,84 @@ class PhotoManager:
             
         return self.video_manager.get_video_metadata(video_path)
     
+    def preload_video_exports(self, photos: List[Dict[str, Any]], max_exports: int = 5) -> None:
+        """Preload video exports in background to reduce latency."""
+        if not self.video_support_enabled:
+            return
+            
+        import threading
+        
+        def export_videos_background():
+            """Background thread to export videos."""
+            export_count = 0
+            for photo in photos:
+                if export_count >= max_exports:
+                    break
+                    
+                if (photo.get('media_type') == 'video' and 
+                    photo.get('needs_export') and 
+                    not photo.get('path')):
+                    
+                    try:
+                        self.logger.debug(f"Pre-exporting video: {photo.get('filename')}")
+                        exported_path = self._export_video_temporarily(photo)
+                        if exported_path:
+                            export_count += 1
+                            self.logger.info(f"Pre-exported video {export_count}/{max_exports}: {photo.get('filename')}")
+                    except Exception as e:
+                        self.logger.error(f"Error pre-exporting video {photo.get('filename')}: {e}")
+        
+        # Start background export thread
+        export_thread = threading.Thread(target=export_videos_background, daemon=True)
+        export_thread.start()
+        self.logger.info(f"Started background video pre-export for up to {max_exports} videos")
+    
     def _export_video_temporarily(self, photo_data: Dict[str, Any]) -> Optional[str]:
-        """Export a video from Apple Photos to a temporary location."""
+        """Export a video from Apple Photos to a temporary location with caching."""
         if not photo_data.get('needs_export') or not photo_data.get('osxphoto_object'):
             return None
             
         try:
             import tempfile
             import os
+            import hashlib
             
             osxphoto = photo_data['osxphoto_object']
             
-            # Create temp directory for video exports
-            temp_dir = os.path.join(tempfile.gettempdir(), 'photo_slideshow_videos')
-            os.makedirs(temp_dir, exist_ok=True)
+            # Create persistent cache directory for video exports
+            cache_dir = os.path.join(os.path.expanduser('~'), '.photo_slideshow_cache', 'videos')
+            os.makedirs(cache_dir, exist_ok=True)
             
-            # Export video to temp location
-            export_paths = osxphoto.export(temp_dir, overwrite=True)
+            # Generate cache filename based on photo UUID
+            photo_uuid = photo_data.get('uuid', '')
+            if not photo_uuid:
+                # Fallback to filename hash if no UUID
+                filename = photo_data.get('filename', 'unknown')
+                photo_uuid = hashlib.md5(filename.encode()).hexdigest()
+            
+            # Check if already cached
+            cached_path = os.path.join(cache_dir, f"{photo_uuid}.mov")
+            if os.path.exists(cached_path) and os.path.getsize(cached_path) > 0:
+                self.logger.debug(f"Using cached video: {cached_path}")
+                photo_data['path'] = cached_path
+                photo_data['needs_export'] = False
+                return cached_path
+            
+            # Export with timing measurement
+            import time
+            start_time = time.time()
+            self.logger.info(f"Exporting video: {photo_data.get('filename', 'unknown')}...")
+            
+            # Export to cache directory with UUID filename
+            export_paths = osxphoto.export(cache_dir, filename=f"{photo_uuid}.mov", overwrite=True)
+            
+            export_time = time.time() - start_time
+            
             if export_paths:
                 exported_path = export_paths[0]
-                self.logger.debug(f"Exported video to: {exported_path}")
+                file_size = os.path.getsize(exported_path) if os.path.exists(exported_path) else 0
+                self.logger.info(f"Video exported in {export_time:.2f}s ({file_size} bytes): {exported_path}")
+                
                 # Update photo_data with exported path for future use
                 photo_data['path'] = exported_path
                 photo_data['needs_export'] = False

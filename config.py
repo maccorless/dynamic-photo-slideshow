@@ -47,7 +47,7 @@ class SlideshowConfig:
         "LOGGING_VERBOSE": False,
         # Video playback settings for v3.0
         'video_playback_enabled': True,
-        'video_max_duration': 30, # seconds - maximum video length to play
+        'video_max_duration': 15, # seconds - maximum video length to play
         'video_audio_enabled': True, # Enable audio playback for videos
         'video_auto_play': True, # Automatically play videos in slideshow
         'video_loop': False, # Loop videos if shorter than slideshow interval
@@ -55,7 +55,7 @@ class SlideshowConfig:
         'video_formats_supported': ['.mp4', '.mov', '.avi', '.mkv', '.wmv'], # Supported formats
 
         # Voice command settings
-        'voice_commands_enabled': False,
+        'voice_commands_enabled': True,
         'voice_confidence_threshold': 0.3, # Minimum confidence for recognition
         'voice_command_timeout': 2.0, # Seconds to listen for a command
         'voice_keywords': {
