@@ -892,8 +892,25 @@ class SlideshowController:
             self._add_to_history(photo_index)
     
     def _create_video_overlays(self, video: Dict[str, Any], video_index: int, total_count: int, location_string: str) -> List[Dict[str, Any]]:
-        """Create overlay information for video display."""
+        """Create overlay information for video display (matching photo overlay format)."""
         overlays = []
+        
+        # Add date overlay if available (same as photos)
+        if video.get('date_taken'):
+            date_str = video['date_taken'].strftime('%B %d, %Y')
+            overlays.append({
+                'type': 'date',
+                'text': date_str,
+                'position': 'left_margin'  # Match photo overlay positioning
+            })
+        
+        # Add location overlay if available (same as photos)
+        if location_string:
+            overlays.append({
+                'type': 'location',
+                'text': location_string,
+                'position': 'right_margin'  # Match photo overlay positioning
+            })
         
         # Add filename overlay if enabled
         if self.show_filename:
@@ -901,14 +918,6 @@ class SlideshowController:
                 'type': 'filename',
                 'text': video.get('filename', 'Unknown Video'),
                 'position': 'bottom_left'
-            })
-        
-        # Add location overlay if available
-        if location_string:
-            overlays.append({
-                'type': 'location',
-                'text': location_string,
-                'position': 'top_right'
             })
         
         # Add video info overlay

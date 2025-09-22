@@ -342,11 +342,11 @@ class PygameDisplayManager:
                            hasattr(self, 'controller') and self.controller and self.controller.is_paused):
                         pygame.time.wait(50)  # Small delay to prevent busy waiting
                         
-                        # Show video pause overlay (lighter than full pause overlay)
-                        # This shows pause indicator without blocking the video
+                        # Show consistent pause overlay (same as photos)
+                        # This shows the same professional overlay for both photos and videos
                         if hasattr(self, 'controller') and self.controller and self.controller.is_paused:
                             try:
-                                self.show_video_pause_overlay()
+                                self.show_stopped_overlay()
                             except:
                                 pass  # Ignore overlay errors during pause
                         
@@ -771,44 +771,7 @@ class PygameDisplayManager:
         except Exception as e:
             self.logger.error(f"Error showing stopped overlay: {e}")
     
-    def show_video_pause_overlay(self) -> None:
-        """Show lightweight pause overlay for videos that doesn't block the video content."""
-        try:
-            # Create pause indicator in top-right corner (less intrusive)
-            pause_text = self.font.render("⏸ PAUSED", True, self.WHITE)
-            pause_rect = pause_text.get_rect()
-            pause_rect.topright = (self.screen_width - 20, 20)
-            
-            # Semi-transparent background for pause indicator
-            bg_rect = pause_rect.inflate(20, 10)
-            overlay = pygame.Surface((bg_rect.width, bg_rect.height))
-            overlay.set_alpha(180)  # More opaque than video overlay
-            overlay.fill((0, 0, 0))  # Black background
-            
-            # Draw pause indicator
-            self.screen.blit(overlay, bg_rect.topleft)
-            pygame.draw.rect(self.screen, self.WHITE, bg_rect, 2)
-            self.screen.blit(pause_text, pause_rect)
-            
-            # Add small instruction text in bottom-right
-            instruction_text = self.small_font.render("SPACE to resume", True, self.WHITE)
-            instruction_rect = instruction_text.get_rect()
-            instruction_rect.bottomright = (self.screen_width - 20, self.screen_height - 20)
-            
-            # Background for instruction
-            inst_bg_rect = instruction_rect.inflate(10, 5)
-            inst_overlay = pygame.Surface((inst_bg_rect.width, inst_bg_rect.height))
-            inst_overlay.set_alpha(180)
-            inst_overlay.fill((0, 0, 0))
-            
-            self.screen.blit(inst_overlay, inst_bg_rect.topleft)
-            pygame.draw.rect(self.screen, self.WHITE, inst_bg_rect, 1)
-            self.screen.blit(instruction_text, instruction_rect)
-            
-            pygame.display.flip()
-            
-        except Exception as e:
-            self.logger.error(f"Error showing video pause overlay: {e}")
+    # REMOVED: show_video_pause_overlay() - now using unified show_stopped_overlay() for both photos and videos
     
     def clear_stopped_overlay(self) -> None:
         """Clear STOPPED overlay when resuming slideshow."""
