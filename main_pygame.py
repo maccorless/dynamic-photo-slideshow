@@ -45,9 +45,7 @@ class PygameSlideshowController:
         
         # REMOVED: Timer management - now handled by slideshow controller
         
-        # Key state tracking for temporary displays
-        self.shift_pressed = False
-        self.current_filename = None
+        # Removed: Key state tracking for filename displays (per requirements)
         
         # Set up controller reference for video navigation
         self.display_manager.set_controller_reference(self.controller)
@@ -89,16 +87,11 @@ class PygameSlideshowController:
                         self.controller.stop()
                         pygame.quit()
                         return  # Exit immediately without cleanup loop
-                    # Handle Shift key for filename display
-                    elif event.key in [pygame.K_LSHIFT, pygame.K_RSHIFT]:
-                        self._handle_shift_press()
+                    # Removed: Shift key handling for filename display (per requirements)
                     else:
                         # Convert pygame key events to tkinter-compatible format
                         self._handle_pygame_key(event, key_callback)
-                elif event.type == pygame.KEYUP:
-                    # Handle Shift key release for filename display
-                    if event.key in [pygame.K_LSHIFT, pygame.K_RSHIFT]:
-                        self._handle_shift_release()
+                # Removed: KEYUP event handling for Shift key (per requirements)
             
             # Check for timer-triggered advancement (macOS thread safety)
             if hasattr(self.controller, 'timer_advance_requested') and self.controller.timer_advance_requested:
@@ -147,42 +140,6 @@ class PygameSlideshowController:
                 self.display_manager.stop()
                 self.controller.stop()
                 return  # Exit immediately
-    
-    def _handle_shift_press(self):
-        """Handle Shift key press for temporary filename display."""
-        if not self.shift_pressed:
-            self.shift_pressed = True
-            # Get current photo filename if available
-            if hasattr(self.controller, 'current_photo_pair') and self.controller.current_photo_pair:
-                if isinstance(self.controller.current_photo_pair, list):
-                    # For photo pairs, show first photo filename
-                    photo_data = self.controller.current_photo_pair[0]
-                else:
-                    # Single photo
-                    photo_data = self.controller.current_photo_pair
-                
-                if photo_data and photo_data.get('path'):
-                    filename = os.path.basename(photo_data['path'])
-                    self.current_filename = filename
-                    self.display_manager.show_filename_overlay(filename)
-    
-    def _handle_shift_release(self):
-        """Handle Shift key release to hide filename display."""
-        if self.shift_pressed:
-            self.shift_pressed = False
-            self.current_filename = None
-            # Refresh the current photo display to remove filename overlay
-            if hasattr(self.controller, 'current_photo_pair') and self.controller.current_photo_pair:
-                # Trigger a redisplay of current photo without filename
-                try:
-                    if isinstance(self.controller.current_photo_pair, list):
-                        location_string = self.controller._get_location_string(self.controller.current_photo_pair[0])
-                        self.display_manager.display_photo(self.controller.current_photo_pair, location_string)
-                    else:
-                        location_string = self.controller._get_location_string(self.controller.current_photo_pair)
-                        self.display_manager.display_photo(self.controller.current_photo_pair, location_string)
-                except Exception as e:
-                    self.logger.error(f"Error refreshing display after shift release: {e}")
     
     def start_slideshow(self):
         """Start the slideshow using pygame."""

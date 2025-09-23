@@ -541,10 +541,7 @@ class PygameDisplayManager:
     def _add_video_overlays(self, video_path: str, remaining_time: int) -> None:
         """Add overlays for video display with flicker-free countdown."""
         try:
-            # Video filename
-            filename = os.path.basename(video_path)
-            filename_text = self.small_font.render(filename, True, self.WHITE)
-            self.screen.blit(filename_text, (20, 20))
+            # Removed: Video filename overlay (per requirements)
             
             # Countdown timer - use consistent styling with photos
             if remaining_time != self._last_countdown:
@@ -1018,27 +1015,4 @@ class PygameDisplayManager:
             self.logger.debug(f"Error calculating optimal font size: {e}")
             return initial_font_size
     
-    def show_filename_overlay(self, filename: str) -> None:
-        """Show filename overlay (activated by Shift key)."""
-        try:
-            # Position filename at top-center
-            font_size = 24
-            font = pygame.font.Font(None, font_size)
-            text_surface = font.render(filename, True, (255, 255, 255))
-            text_rect = text_surface.get_rect()
-            text_rect.centerx = self.screen_width // 2
-            text_rect.y = 20
-            
-            # Add semi-transparent background
-            bg_rect = text_rect.inflate(20, 10)
-            bg_surface = pygame.Surface(bg_rect.size)
-            bg_surface.set_alpha(128)
-            bg_surface.fill((0, 0, 0))
-            
-            # Draw to screen
-            self.screen.blit(bg_surface, bg_rect)
-            self.screen.blit(text_surface, text_rect)
-            pygame.display.flip()
-            
-        except Exception as e:
-            self.logger.error(f"Error showing filename overlay: {e}")
+    # REMOVED: show_filename_overlay method (per requirements - no filename/hotkey overlays)
