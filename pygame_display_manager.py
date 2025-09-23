@@ -272,10 +272,14 @@ class PygameDisplayManager:
             self.logger.error(f"Error displaying paired photos: {e}")
             self._display_error_message("Cannot load paired images")
     
-    def play_video(self, video_path: str, max_duration: int = 15, completion_callback=None) -> bool:
-        """Play video using pyvidplayer2."""
+    def play_video(self, video_path: str, max_duration: int = 15, completion_callback=None, overlays: List[Dict[str, Any]] = None) -> bool:
+        """Play video using pyvidplayer2 with overlay support."""
         try:
             self.logger.info(f"Playing video: {os.path.basename(video_path)}")
+            
+            # Store overlays for use during video playback
+            self.current_video_overlays = overlays or []
+            self.logger.debug(f"[VIDEO-OVERLAY] Stored {len(self.current_video_overlays)} overlays for video playback")
             
             # Reset countdown state for new slide
             self._reset_countdown_state()
@@ -423,7 +427,7 @@ class PygameDisplayManager:
                 # Add video overlays with accurate slide timer countdown
                 elapsed_time = time.time() - start_time
                 remaining_time = max(0, int(slide_timer - elapsed_time))
-                self._add_video_overlays(video_path, remaining_time)
+                self._add_video_overlays(video_path, remaining_time, self.current_video_overlays)
                 
                 # Update countdown display for videos
                 if self.config.get('show_countdown_timer', False):
@@ -538,10 +542,71 @@ class PygameDisplayManager:
         except Exception as e:
             self.logger.error(f"Error adding photo overlays: {e}")
     
-    def _add_video_overlays(self, video_path: str, remaining_time: int) -> None:
-        """Add overlays for video display with flicker-free countdown."""
+    def _render_margin_overlay(self, text: str, position: str) -> None:
+        """Render overlay text in screen margins using photo overlay styling.
+        
+        Args:
+            text: Text to display
+            position: 'left_margin' or 'right_margin'
+        """
         try:
-            # Removed: Video filename overlay (per requirements)
+            # Use same font and styling as photos
+            font_size = 36
+            try:
+                overlay_font = pygame.font.SysFont('Arial', font_size)
+            except:
+                overlay_font = pygame.font.Font(None, font_size)
+            
+            text_surface = overlay_font.render(text, True, (0, 0, 0))  # Black text
+            text_width = text_surface.get_width()
+            text_height = text_surface.get_height()
+            
+            # Create background sized exactly to text dimensions (matching photos)
+            padding = 8
+            bg_width = text_width + 2 * padding
+            bg_height = text_height + 2 * padding
+            
+            # Position based on margin (left or right)
+            if position == 'left_margin':
+                bg_x = 20  # Left margin
+            elif position == 'right_margin':
+                bg_x = self.screen_width - bg_width - 20  # Right margin
+            else:
+                bg_x = 20  # Default to left
+            
+            # Center vertically in screen
+            bg_y = (self.screen_height - bg_height) // 2
+            
+            # Draw solid white background (same as photos)
+            pygame.draw.rect(self.screen, (255, 255, 255), (bg_x, bg_y, bg_width, bg_height))
+            
+            # Position text at the center of the background
+            text_x = bg_x + bg_width // 2 - text_width // 2
+            text_y = bg_y + bg_height // 2 - text_height // 2
+            
+            # Draw text centered on the white background
+            self.screen.blit(text_surface, (text_x, text_y))
+            
+        except Exception as e:
+            self.logger.error(f"Error rendering margin overlay: {e}")
+    
+    def _add_video_overlays(self, video_path: str, remaining_time: int, overlays: List[Dict[str, Any]] = None) -> None:
+        """Add overlays for video display using slideshow controller data (same format as photos)."""
+        try:
+            # Render date and location overlays from slideshow controller data
+            if overlays:
+                for overlay in overlays:
+                    overlay_type = overlay.get('type')
+                    text = overlay.get('text', '')
+                    position = overlay.get('position', 'left_margin')
+                    
+                    if not text:
+                        continue
+                        
+                    # Render date and location overlays using photo styling
+                    if overlay_type in ['date', 'location'] and position in ['left_margin', 'right_margin']:
+                        self._render_margin_overlay(text, position)
+                        self.logger.debug(f"[VIDEO-OVERLAY] Rendered {overlay_type} overlay: {text} at {position}")
             
             # Countdown timer - use consistent styling with photos
             if remaining_time != self._last_countdown:
@@ -564,8 +629,6 @@ class PygameDisplayManager:
                 # Draw background and text
                 self.screen.blit(bg_surface, bg_rect.topleft)
                 self.screen.blit(self._countdown_text, self._countdown_rect)
-            
-            # Removed: Instruction overlays (per requirements)
                 
         except Exception as e:
             self.logger.error(f"Error adding video overlays: {e}")
@@ -675,11 +738,11 @@ class PygameDisplayManager:
         """Check if video is currently playing."""
         return self.video_playing
     
-    def display_video(self, video_path: str, overlays: dict = None, max_duration: int = None, completion_callback=None) -> bool:
+    def display_video(self, video_path: str, overlays: List[Dict[str, Any]] = None, max_duration: int = None, completion_callback=None) -> bool:
         """Display video with overlays (compatibility method)."""
         if max_duration is None:
             max_duration = self.config.get('video_max_duration', 15)
-        return self.play_video(video_path, max_duration, completion_callback)
+        return self.play_video(video_path, max_duration, completion_callback, overlays)
     
     def pause_video(self) -> None:
         """Pause video playback."""
