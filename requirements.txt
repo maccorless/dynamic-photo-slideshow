@@ -3,7 +3,7 @@ Pillow>=10.0.0
 requests>=2.31.0
 pillow-heif>=0.13.0
 SpeechRecognition>=3.14.0
-python-vlc>=3.0
+# Removed: python-vlc>=3.0 (was for tkinter video path - no longer needed)
 # Video processing dependencies for v3.0
 opencv-python>=4.8.0
 moviepy>=1.0.3

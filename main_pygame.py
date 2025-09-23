@@ -50,19 +50,18 @@ class PygameSlideshowController:
         # Set up controller reference for video navigation
         self.display_manager.set_controller_reference(self.controller)
         
-        # Override the event loop method to prevent tkinter mainloop
+        # Set up pygame event loop
         self.controller.display_manager.start_event_loop = self._pygame_event_loop
     
     def _pygame_event_loop(self, key_callback):
-        """Pygame-based event loop replacement for tkinter mainloop."""
+        """Pygame-based event loop for slideshow control."""
         clock = pygame.time.Clock()
         self.last_advance_time = pygame.time.get_ticks()
         
         while self.display_manager.is_running():
             current_time = pygame.time.get_ticks()
             
-            # Process any pending callbacks from tkinter compatibility layer
-            self.display_manager.process_pending_callbacks()
+            # No callback processing needed - pure pygame approach
             
             # Handle pygame events
             events = self.display_manager.handle_events()
@@ -89,7 +88,7 @@ class PygameSlideshowController:
                         return  # Exit immediately without cleanup loop
                     # Removed: Shift key handling for filename display (per requirements)
                     else:
-                        # Convert pygame key events to tkinter-compatible format
+                        # Convert pygame key events to normalized format
                         self._handle_pygame_key(event, key_callback)
                 # Removed: KEYUP event handling for Shift key (per requirements)
             
@@ -109,13 +108,13 @@ class PygameSlideshowController:
         self.display_manager.cleanup()
     
     def _handle_pygame_key(self, pygame_event, key_callback):
-        """Convert pygame key events to tkinter-compatible format."""
-        # Create a mock tkinter event object
-        class MockTkinterEvent:
+        """Convert pygame key events to normalized format."""
+        # Create a mock event object for compatibility
+        class MockEvent:
             def __init__(self, keysym):
                 self.keysym = keysym
         
-        # Map pygame keys to tkinter keysyms (excluding Shift keys)
+        # Map pygame keys to normalized key identifiers
         key_mapping = {
             pygame.K_SPACE: 'space',
             pygame.K_ESCAPE: 'Escape',
@@ -131,7 +130,7 @@ class PygameSlideshowController:
         }
         
         if pygame_event.key in key_mapping:
-            mock_event = MockTkinterEvent(key_mapping[pygame_event.key])
+            mock_event = MockEvent(key_mapping[pygame_event.key])
             key_callback(mock_event)
             
             # Handle immediate exit for escape key

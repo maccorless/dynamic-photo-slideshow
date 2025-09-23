@@ -624,19 +624,10 @@ class SlideshowController:
     def _schedule_advancement_on_main_thread(self) -> None:
         """Schedule slideshow advancement on the main thread to avoid macOS threading issues."""
         try:
-            # For pygame, we need to set a flag that the main event loop will check
+            # Pygame version - set flag for main event loop to check
             # This avoids calling pygame operations from background threads
-            if hasattr(self, 'display_manager') and hasattr(self.display_manager, 'root'):
-                # Tkinter version - use after() to schedule on main thread
-                if self.display_manager.root:
-                    self.display_manager.root.after(0, lambda: self.advance_slideshow(TriggerType.TIMER, Direction.NEXT))
-                else:
-                    # Fallback: set flag for main loop to check
-                    self.timer_advance_requested = True
-            else:
-                # Pygame version - set flag for main event loop to check
-                self.timer_advance_requested = True
-                self.logger.debug("[TIMER] Set timer_advance_requested flag for main thread processing")
+            self.timer_advance_requested = True
+            self.logger.debug("[TIMER] Set timer_advance_requested flag for main thread processing")
         except Exception as e:
             self.logger.error(f"[TIMER] Error scheduling advancement: {e}")
             # Fallback: set flag

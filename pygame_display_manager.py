@@ -1079,40 +1079,7 @@ class PygameDisplayManager:
         """Destroy display manager (compatibility method)."""
         self.cleanup()
     
-    @property
-    def root(self):
-        """Compatibility property for tkinter root access."""
-        return self  # Return self to allow method calls
-    
-    def after(self, delay_ms: int, callback):
-        """Compatibility method for tkinter's after method."""
-        # For pygame, we'll handle timing differently in the main loop
-        # Schedule callback to be executed in the main event loop
-        if callable(callback):
-            # Store callback for execution in main loop
-            if not hasattr(self, '_pending_callbacks'):
-                self._pending_callbacks = []
-            self._pending_callbacks.append((pygame.time.get_ticks() + delay_ms, callback))
-    
-    def process_pending_callbacks(self):
-        """Process any pending callbacks scheduled via after method."""
-        if not hasattr(self, '_pending_callbacks'):
-            self._pending_callbacks = []
-            return
-        
-        current_time = pygame.time.get_ticks()
-        remaining_callbacks = []
-        
-        for scheduled_time, callback in self._pending_callbacks:
-            if current_time >= scheduled_time:
-                try:
-                    callback()
-                except Exception as e:
-                    self.logger.error(f"Error executing scheduled callback: {e}")
-            else:
-                remaining_callbacks.append((scheduled_time, callback))
-        
-        self._pending_callbacks = remaining_callbacks
+    # Removed tkinter compatibility methods - using pure pygame approach
     
     def _calculate_optimal_font_size(self, text: str, initial_font_size: int, max_width: int) -> int:
         """Calculate optimal font size to fit text within given width (v2.0 compliant)."""
