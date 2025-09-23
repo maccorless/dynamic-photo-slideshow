@@ -53,6 +53,10 @@ class SlideshowConfig:
         'video_loop': False, # Loop videos if shorter than slideshow interval
         'video_thumbnail_enabled': True, # Generate thumbnails for videos
         'video_formats_supported': ['.mp4', '.mov', '.avi', '.mkv', '.wmv'], # Supported formats
+        
+        # Video filtering settings
+        'video_person_filter': 'Ally', # Person name to filter videos (None for no filter)
+        'video_local_only': True, # Only use locally available videos (not iCloud-only)
 
         # Voice command settings
         'voice_commands_enabled': True,

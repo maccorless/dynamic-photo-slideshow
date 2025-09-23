@@ -400,8 +400,18 @@ class SlideshowController:
         
         # Determine if this is a video or photo and create appropriate slide
         if self._is_video_content(photo):
-            self.logger.info(f"[SLIDE-CREATION] Creating video slide: {photo.get('filename', 'unknown')}")
-            return self._create_slide_from_video(photo, photo_index)
+            self.logger.info(f"[SLIDE-CREATION] Random selection was video, getting filtered video instead")
+            # Use filtered video selection instead of random video
+            filtered_video = self._get_filtered_video()
+            if filtered_video:
+                return self._create_slide_from_video(filtered_video, 0)
+            else:
+                self.logger.warning(f"[SLIDE-CREATION] No filtered video available, falling back to photo")
+                # Fall back to getting a photo instead
+                photo, photo_index = self._get_random_photo_only()
+                if photo:
+                    return self._create_slide_from_photo(photo, photo_index)
+                return None
         else:
             self.logger.info(f"[SLIDE-CREATION] Creating photo slide: {photo.get('filename', 'unknown')}")
             return self._create_slide_from_photo(photo, photo_index)
@@ -440,8 +450,13 @@ class SlideshowController:
             self.current_slide = slide
             self.slideshow_timer = slide['slide_timer']
             
+            # TRACE: Debug logging for video display path
+            self.logger.info(f"[TRACE] _display_slide_with_timer called with slide type: {slide.get('type')}")
+            self.logger.info(f"[TRACE] About to call _display_slide_content")
+            
             # Display the slide based on its type
             display_success = self._display_slide_content(slide)
+            self.logger.info(f"[TRACE] _display_slide_content returned: {display_success}")
             if not display_success:
                 return False
             
@@ -474,13 +489,17 @@ class SlideshowController:
     def _display_slide_content(self, slide: Dict[str, Any]) -> bool:
         """Display the actual slide content (photos/videos)."""
         slide_type = slide['type']
+        self.logger.info(f"[SLIDE-DEBUG] _display_slide_content called with slide_type: {slide_type}")
         
         try:
             if slide_type == 'portrait_pair':
+                self.logger.info(f"[SLIDE-DEBUG] Taking portrait_pair path")
                 return self._display_portrait_pair_content(slide)
             elif slide_type == 'video':
+                self.logger.info(f"[SLIDE-DEBUG] Taking video path - calling _display_video_content")
                 return self._display_video_content(slide)
             elif slide_type in ['landscape', 'single_portrait']:
+                self.logger.info(f"[SLIDE-DEBUG] Taking single photo path")
                 return self._display_single_photo_content(slide)
             else:
                 self.logger.error(f"[DISPLAY] Unknown slide type: {slide_type}")
@@ -681,10 +700,12 @@ class SlideshowController:
     
     def _display_video_content(self, slide: Dict[str, Any]) -> bool:
         """Display video content only (no timer logic)."""
+        self.logger.info(f"[TRACE] _display_video_content called!")
         try:
             video = slide['photos'][0]  # Videos are stored in photos array for consistency
             location_string = slide['location_string']
             slideshow_timer = slide['slide_timer']
+            self.logger.info(f"[TRACE] Video data extracted - filename: {video.get('filename', 'unknown')}")
             
             self.current_photo_pair = video
             self.logger.info(f"Displaying video: {video.get('filename', 'Unknown')}")
@@ -696,10 +717,31 @@ class SlideshowController:
             
             # Display the video using existing video display logic
             video_path = video.get('path')
+            
+            # Handle videos that need to be exported from Apple Photos
+            if not video_path and video.get('needs_export'):
+                self.logger.info(f"[VIDEO-EXPORT] Video needs export, calling photo_manager._export_video_temporarily")
+                self.logger.info(f"[VIDEO-EXPORT] Video data keys: {list(video.keys())}")
+                self.logger.info(f"[VIDEO-EXPORT] Has osxphoto_object: {video.get('osxphoto_object') is not None}")
+                self.logger.info(f"[VIDEO-EXPORT] needs_export: {video.get('needs_export')}")
+                video_path = self.photo_manager._export_video_temporarily(video)
+                if video_path:
+                    self.logger.info(f"[VIDEO-EXPORT] Successfully exported video to: {video_path}")
+                    # Update the video data with the exported path
+                    video['path'] = video_path
+                    video['needs_export'] = False
+                else:
+                    self.logger.error(f"[VIDEO-EXPORT] Failed to export video: {video.get('filename', 'unknown')}")
+                    self.logger.error(f"[VIDEO-EXPORT] Video data for debugging: {video}")
+                    return False
+            
             if video_path:
                 video_index = slide.get('photo_indices', [0])[0]
                 total_count = self.photo_manager.get_photo_count()
+                self.logger.info(f"[VIDEO-DEBUG] About to create overlays - video_index: {video_index}, total_count: {total_count}, location_string: '{location_string}'")
+                self.logger.info(f"[VIDEO-DEBUG] Video data keys: {list(video.keys())}")
                 overlays = self._create_video_overlays(video, video_index, total_count, location_string)
+                self.logger.info(f"[VIDEO-DEBUG] Created {len(overlays)} overlays: {[o.get('type') for o in overlays]}")
                 display_duration = slideshow_timer
                 
                 # Create completion callback to handle video completion
@@ -708,7 +750,9 @@ class SlideshowController:
                     # Videos don't use timer managers - advance directly
                     self._schedule_advancement_on_main_thread()
                 
-                success = self.display_manager.display_video(video_path, overlays, display_duration, video_completion_callback)
+                self.logger.info(f"[VIDEO-DEBUG] Calling display_video with {len(overlays)} overlays")
+                success = self.display_manager.display_video(video_path, overlays, display_duration, video_completion_callback, video)
+                self.logger.info(f"[VIDEO-DEBUG] display_video returned: {success}")
                 
                 if success:
                     self.logger.info(f"[VIDEO] Successfully displayed video - duration: {slideshow_timer}s, slide_id: {slide_id}")
@@ -752,52 +796,112 @@ class SlideshowController:
         
         return None, None
     
+    def _get_random_photo_only(self) -> tuple[Optional[Dict[str, Any]], Optional[int]]:
+        """Generate a random photo (excluding videos)."""
+        attempts = 0
+        while attempts < 20:  # More attempts since we're filtering out videos
+            photo_index = self.photo_manager.get_random_photo_index()
+            candidate_photo = self.photo_manager.get_photo_by_index(photo_index)
+            
+            if candidate_photo and not self._is_video_content(candidate_photo):
+                return candidate_photo, photo_index
+            attempts += 1
+        
+        return None, None
+    
+    def _get_filtered_video(self) -> Optional[Dict[str, Any]]:
+        """Get a filtered video based on configuration (person, local availability)."""
+        try:
+            # Get video filtering configuration
+            person_filter = self.config.get('video_person_filter')
+            local_only = self.config.get('video_local_only', True)
+            
+            self.logger.info(f"[VIDEO-FILTER] Filtering videos - person: '{person_filter}', local_only: {local_only}")
+            
+            # Get videos from photo manager's photo database
+            if not hasattr(self.photo_manager, 'photos_db') or not self.photo_manager.photos_db:
+                self.logger.error(f"[VIDEO-FILTER] No photos database available")
+                return None
+            
+            # Start with all videos or filter by person
+            if person_filter:
+                self.logger.info(f"[VIDEO-FILTER] Searching for videos with person '{person_filter}'")
+                try:
+                    all_photos = self.photo_manager.photos_db.photos(persons=[person_filter])
+                    candidate_videos = [p for p in all_photos if p.ismovie]
+                    self.logger.info(f"[VIDEO-FILTER] Found {len(candidate_videos)} videos with person '{person_filter}'")
+                except Exception as e:
+                    self.logger.error(f"[VIDEO-FILTER] Error searching for person '{person_filter}': {e}")
+                    return None
+            else:
+                # No person filter - get all videos
+                all_photos = self.photo_manager.photos_db.photos()
+                candidate_videos = [p for p in all_photos if p.ismovie]
+                self.logger.info(f"[VIDEO-FILTER] Found {len(candidate_videos)} total videos (no person filter)")
+            
+            if not candidate_videos:
+                self.logger.warning(f"[VIDEO-FILTER] No videos found matching criteria")
+                return None
+            
+            # Filter for local availability if required
+            if local_only:
+                locally_available = []
+                for video in candidate_videos:
+                    is_missing = getattr(video, 'ismissing', False)
+                    has_path = getattr(video, 'path', None) and os.path.exists(video.path)
+                    
+                    if not is_missing and has_path:
+                        locally_available.append(video)
+                
+                self.logger.info(f"[VIDEO-FILTER] {len(locally_available)} of {len(candidate_videos)} videos are locally available")
+                candidate_videos = locally_available
+            
+            if not candidate_videos:
+                self.logger.warning(f"[VIDEO-FILTER] No locally available videos found")
+                return None
+            
+            # Select random video from filtered candidates
+            import random
+            selected_video = random.choice(candidate_videos)
+            
+            # Extract metadata using existing photo pipeline
+            video_data = self.photo_manager._extract_photo_metadata(selected_video)
+            if video_data:
+                self.logger.info(f"[VIDEO-FILTER] Selected video: {video_data.get('filename', 'unknown')}")
+                return video_data
+            else:
+                self.logger.error(f"[VIDEO-FILTER] Failed to extract metadata for selected video")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"[VIDEO-FILTER] Error getting filtered video: {e}")
+            return None
+    
     def _get_test_video_if_applicable(self) -> Optional[Dict[str, Any]]:
-        """Get test video if we should show one now."""
-        # Initialize slide count if not exists
+        """Get real video from Apple Photos for video test mode if applicable."""
+        if not self.config.get('video_test_mode', False):
+            return None
+        
+        # Initialize slide count if not set
         if not hasattr(self, 'slide_count'):
             self.slide_count = 0
         
         # Increment slide count for this new slide
         self.slide_count += 1
         
-        self.logger.info(f"[VIDEO-TEST] Checking slide {self.slide_count} for test video")
+        self.logger.info(f"[VIDEO-TEST] Checking slide {self.slide_count} for real video from Apple Photos")
         
-        if self.slide_count == 2:
-            # Short video (less than 10s) on slide 2
-            self.logger.info(f"[VIDEO-TEST] Returning short test video for slide {self.slide_count}")
-            return self._create_test_video_dict("short")
-        elif self.slide_count == 5:
-            # Long video (more than 10s) on slide 5
-            self.logger.info(f"[VIDEO-TEST] Returning long test video for slide {self.slide_count}")
-            return self._create_test_video_dict("long")
+        if self.slide_count == 2 or self.slide_count == 5:
+            # Get filtered video for slides 2 and 5 using unified method
+            self.logger.info(f"[VIDEO-TEST] Getting filtered video for slide {self.slide_count}")
+            return self._get_filtered_video()
         
         self.logger.info(f"[VIDEO-TEST] No test video for slide {self.slide_count}")
         return None
     
-    def _create_test_video_dict(self, video_type: str) -> Dict[str, Any]:
-        """Create a test video dictionary."""
-        if video_type == "short":
-            path = self.config.get('video_test_short_path')
-            uuid = "test_short_video"
-            title = "Test Video (short)"
-        else:
-            path = self.config.get('video_test_long_path') 
-            uuid = "test_long_video"
-            title = "Test Video (long)"
-            
-        self.logger.info(f"Processing test video: {video_type}_test_video.mov - is_video: True - uuid: {uuid}")
-        
-        return {
-            'uuid': uuid,
-            'filename': f"{video_type}_test_video.mov",
-            'path': path,
-            'date': '2025-09-08',
-            'title': title,
-            'media_type': 'video',
-            'is_video': True,
-            'orientation': 'landscape'
-        }
+    # REMOVED: _get_real_video_for_test - replaced by unified _get_filtered_video method
+    
+    # REMOVED: _create_test_video_dict - replaced by _get_filtered_video using Apple Photos
     
     # REMOVED: _handle_photo_display - dead code, replaced by _create_slide_from_photo()
     
@@ -835,12 +939,17 @@ class SlideshowController:
         
         if photo_is_video or second_is_video:
             # Handle mixed content - display video first, then photo
+            self.logger.info(f"[TRACE-MIXED] Mixed content detected - photo_is_video: {photo_is_video}, second_is_video: {second_is_video}")
             if photo_is_video:
                 location_string = self._get_location_string(photo)
+                self.logger.info(f"[TRACE-MIXED] About to call _display_video_content with WRONG parameters: photo, {photo_index}, {photo_count}, '{location_string}'")
                 self._display_video_content(photo, photo_index, photo_count, location_string)
+                self.logger.info(f"[TRACE-MIXED] _display_video_content call completed (or failed)")
             else:
                 location_string = self._get_location_string(second_photo)
+                self.logger.info(f"[TRACE-MIXED] About to call _display_video_content with WRONG parameters: second_photo, {second_photo_index}, {photo_count}, '{location_string}'")
                 self._display_video_content(second_photo, second_photo_index, photo_count, location_string)
+                self.logger.info(f"[TRACE-MIXED] _display_video_content call completed (or failed)")
         else:
             # Both are images, display as pair
             location_string = self._get_location_string(photo)
@@ -894,6 +1003,9 @@ class SlideshowController:
     def _create_video_overlays(self, video: Dict[str, Any], video_index: int, total_count: int, location_string: str) -> List[Dict[str, Any]]:
         """Create overlay information for video display (matching photo overlay format)."""
         overlays = []
+        self.logger.info(f"[VIDEO-OVERLAY-CREATE] Creating overlays for video: {video.get('filename', 'unknown')}")
+        self.logger.info(f"[VIDEO-OVERLAY-CREATE] Video date_taken: {video.get('date_taken')}")
+        self.logger.info(f"[VIDEO-OVERLAY-CREATE] Location string: {location_string}")
         
         # Add date overlay if available (same as photos)
         if video.get('date_taken'):
@@ -903,6 +1015,9 @@ class SlideshowController:
                 'text': date_str,
                 'position': 'left_margin'  # Match photo overlay positioning
             })
+            self.logger.info(f"[VIDEO-OVERLAY-CREATE] Added date overlay: {date_str}")
+        else:
+            self.logger.warning(f"[VIDEO-OVERLAY-CREATE] No date_taken available for video")
         
         # Add location overlay if available (same as photos)
         if location_string:
@@ -911,6 +1026,9 @@ class SlideshowController:
                 'text': location_string,
                 'position': 'right_margin'  # Match photo overlay positioning
             })
+            self.logger.info(f"[VIDEO-OVERLAY-CREATE] Added location overlay: {location_string}")
+        else:
+            self.logger.warning(f"[VIDEO-OVERLAY-CREATE] No location string available for video")
         
         # Add filename overlay if enabled
         if self.show_filename:
@@ -927,6 +1045,7 @@ class SlideshowController:
             'position': 'top_left'
         })
         
+        self.logger.info(f"[VIDEO-OVERLAY-CREATE] Created {len(overlays)} total overlays: {[o['type'] for o in overlays]}")
         return overlays
     
     def pause_video(self) -> None:

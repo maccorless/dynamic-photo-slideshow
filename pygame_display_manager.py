@@ -272,14 +272,17 @@ class PygameDisplayManager:
             self.logger.error(f"Error displaying paired photos: {e}")
             self._display_error_message("Cannot load paired images")
     
-    def play_video(self, video_path: str, max_duration: int = 15, completion_callback=None, overlays: List[Dict[str, Any]] = None) -> bool:
+    def play_video(self, video_path: str, max_duration: int = 15, completion_callback=None, overlays: List[Dict[str, Any]] = None, video_metadata: Dict[str, Any] = None) -> bool:
         """Play video using pyvidplayer2 with overlay support."""
         try:
             self.logger.info(f"Playing video: {os.path.basename(video_path)}")
             
             # Store overlays for use during video playback
             self.current_video_overlays = overlays or []
-            self.logger.debug(f"[VIDEO-OVERLAY] Stored {len(self.current_video_overlays)} overlays for video playback")
+            self.logger.info(f"[VIDEO-OVERLAY-STORE] Stored {len(self.current_video_overlays)} overlays for video playback")
+            if self.current_video_overlays:
+                for i, overlay in enumerate(self.current_video_overlays):
+                    self.logger.info(f"[VIDEO-OVERLAY-STORE] Overlay {i+1}: {overlay.get('type')} = '{overlay.get('text')}' at {overlay.get('position')}")
             
             # Reset countdown state for new slide
             self._reset_countdown_state()
@@ -293,6 +296,23 @@ class PygameDisplayManager:
             # Load video
             video = Video(video_path)
             video.set_volume(self.config.get('VIDEO_AUDIO_ENABLED', True))
+            
+            # Store video metadata for overlay positioning
+            if video_metadata:
+                self.current_video_metadata = {
+                    'width': video_metadata.get('width', self.screen_width),
+                    'height': video_metadata.get('height', self.screen_height),
+                    'path': video_path
+                }
+                self.logger.info(f"[VIDEO-METADATA] Stored video dimensions from metadata: {self.current_video_metadata['width']}x{self.current_video_metadata['height']}")
+            else:
+                # Fallback if no metadata provided
+                self.current_video_metadata = {
+                    'width': self.screen_width,
+                    'height': self.screen_height,
+                    'path': video_path
+                }
+                self.logger.warning(f"[VIDEO-METADATA] No video metadata provided, using screen dimensions as fallback")
             
             # Resize video for screen
             video_pos = self._resize_video_for_screen(video)
@@ -566,13 +586,57 @@ class PygameDisplayManager:
             bg_width = text_width + 2 * padding
             bg_height = text_height + 2 * padding
             
-            # Position based on margin (left or right)
-            if position == 'left_margin':
-                bg_x = 20  # Left margin
-            elif position == 'right_margin':
-                bg_x = self.screen_width - bg_width - 20  # Right margin
+            # Calculate actual video display dimensions and border gaps
+            # Get the current video dimensions if available
+            video_display_width = self.screen_width  # Default to full screen
+            
+            # Try to get actual video dimensions from current video metadata
+            if hasattr(self, 'current_video_metadata') and self.current_video_metadata:
+                video_width = self.current_video_metadata.get('width', self.screen_width)
+                video_height = self.current_video_metadata.get('height', self.screen_height)
+                
+                # Calculate how the video is scaled to fit screen while maintaining aspect ratio
+                video_aspect = video_width / video_height if video_height > 0 else 1.0
+                screen_aspect = self.screen_width / self.screen_height
+                
+                if video_aspect > screen_aspect:
+                    # Video is wider - will have letterboxing (black bars top/bottom)
+                    # Video uses full screen width
+                    video_display_width = self.screen_width
+                else:
+                    # Video is taller - will have pillarboxing (black bars left/right)
+                    # Video width is constrained by height
+                    video_display_width = int(self.screen_height * video_aspect)
+            
+            # Calculate the actual border gap on each side
+            total_gap = self.screen_width - video_display_width
+            gap_per_side = total_gap // 2
+            
+            # Calculate center point of each gap and center overlay there
+            if gap_per_side > bg_width:
+                # Enough space to center overlay in gap
+                if position == 'left_margin':
+                    # Center overlay in left gap (0 to gap_per_side)
+                    gap_center = gap_per_side // 2
+                    bg_x = gap_center - bg_width // 2
+                elif position == 'right_margin':
+                    # Center overlay in right gap (screen_width - gap_per_side to screen_width)
+                    right_gap_start = self.screen_width - gap_per_side
+                    gap_center = right_gap_start + gap_per_side // 2
+                    bg_x = gap_center - bg_width // 2
+                else:
+                    # Default to left gap
+                    gap_center = gap_per_side // 2
+                    bg_x = gap_center - bg_width // 2
             else:
-                bg_x = 20  # Default to left
+                # Gap too small for overlay, fall back to minimal margins
+                margin = 10
+                if position == 'left_margin':
+                    bg_x = margin
+                elif position == 'right_margin':
+                    bg_x = self.screen_width - bg_width - margin
+                else:
+                    bg_x = margin
             
             # Center vertically in screen
             bg_y = (self.screen_height - bg_height) // 2
@@ -606,7 +670,9 @@ class PygameDisplayManager:
                     # Render date and location overlays using photo styling
                     if overlay_type in ['date', 'location'] and position in ['left_margin', 'right_margin']:
                         self._render_margin_overlay(text, position)
-                        self.logger.debug(f"[VIDEO-OVERLAY] Rendered {overlay_type} overlay: {text} at {position}")
+                        self.logger.info(f"[VIDEO-OVERLAY-RENDER] Rendered {overlay_type} overlay: '{text}' at {position}")
+                    else:
+                        self.logger.info(f"[VIDEO-OVERLAY-SKIP] Skipped {overlay_type} overlay (not date/location or wrong position): '{text}' at {position}")
             
             # Countdown timer - use consistent styling with photos
             if remaining_time != self._last_countdown:
@@ -738,11 +804,11 @@ class PygameDisplayManager:
         """Check if video is currently playing."""
         return self.video_playing
     
-    def display_video(self, video_path: str, overlays: List[Dict[str, Any]] = None, max_duration: int = None, completion_callback=None) -> bool:
+    def display_video(self, video_path: str, overlays: List[Dict[str, Any]] = None, max_duration: int = None, completion_callback=None, video_metadata: Dict[str, Any] = None) -> bool:
         """Display video with overlays (compatibility method)."""
         if max_duration is None:
             max_duration = self.config.get('video_max_duration', 15)
-        return self.play_video(video_path, max_duration, completion_callback, overlays)
+        return self.play_video(video_path, max_duration, completion_callback, overlays, video_metadata)
     
     def pause_video(self) -> None:
         """Pause video playback."""

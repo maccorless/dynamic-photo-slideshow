@@ -673,7 +673,11 @@ class PhotoManager:
     
     def _export_video_temporarily(self, photo_data: Dict[str, Any]) -> Optional[str]:
         """Export a video from Apple Photos to a temporary location with caching."""
-        if not photo_data.get('needs_export') or not photo_data.get('osxphoto_object'):
+        if not photo_data.get('needs_export'):
+            self.logger.error(f"[EXPORT-DEBUG] Video does not need export: needs_export={photo_data.get('needs_export')}")
+            return None
+        if not photo_data.get('osxphoto_object'):
+            self.logger.error(f"[EXPORT-DEBUG] No osxphoto_object found in video data")
             return None
             
         try:
@@ -708,7 +712,9 @@ class PhotoManager:
             self.logger.info(f"Exporting video: {photo_data.get('filename', 'unknown')}...")
             
             # Export to cache directory with UUID filename
+            self.logger.info(f"[EXPORT-DEBUG] About to call osxphoto.export() with cache_dir={cache_dir}, filename={photo_uuid}.mov")
             export_paths = osxphoto.export(cache_dir, filename=f"{photo_uuid}.mov", overwrite=True)
+            self.logger.info(f"[EXPORT-DEBUG] osxphoto.export() returned: {export_paths}")
             
             export_time = time.time() - start_time
             
@@ -722,7 +728,7 @@ class PhotoManager:
                 photo_data['needs_export'] = False
                 return exported_path
             else:
-                self.logger.warning(f"Failed to export video: {photo_data.get('filename', 'unknown')}")
+                self.logger.warning(f"Failed to export video: {photo_data.get('filename', 'unknown')} - export_paths was empty")
                 return None
                 
         except Exception as e:
