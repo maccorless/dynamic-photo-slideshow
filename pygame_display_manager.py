@@ -316,33 +316,23 @@ class PygameDisplayManager:
                 if hasattr(self, 'controller') and self.controller and self.controller.is_paused:
                     self.logger.info(f"[VIDEO-PAUSE] Video paused by slideshow controller")
                     
-                    # Actually pause the video object to stop both video and audio
-                    try:
-                        if hasattr(video, 'pause'):
-                            video.pause()
-                            self.logger.info(f"[VIDEO-PAUSE] Video object paused successfully")
-                        else:
-                            self.logger.warning(f"[VIDEO-PAUSE] Video object has no pause method")
-                    except Exception as e:
-                        self.logger.error(f"[VIDEO-PAUSE] Failed to pause video: {e}")
-                    
-                    # DON'T show overlay here - let controller handle it
-                    # The controller will show the overlay after pausing
+                    # Use synchronous pause method
+                    pause_success = self.pause_video()
+                    if pause_success:
+                        self.logger.info(f"[VIDEO-PAUSE] Video successfully paused, showing overlay")
+                        # Now show the overlay after video is paused
+                        self.show_stopped_overlay()
+                    else:
+                        self.logger.warning(f"[VIDEO-PAUSE] Failed to pause video, showing overlay anyway")
+                        self.show_stopped_overlay()
                     
                     paused_start_time = time.time()
                     
-                    # Wait while paused and ensure overlay stays visible
+                    # Wait while paused - overlay is already shown above
                     while (self.running and self.video_playing and 
                            hasattr(self, 'controller') and self.controller and self.controller.is_paused):
                         pygame.time.wait(50)  # Small delay to prevent busy waiting
-                        
-                        # Show consistent pause overlay (same as photos)
-                        # This shows the same professional overlay for both photos and videos
-                        if hasattr(self, 'controller') and self.controller and self.controller.is_paused:
-                            try:
-                                self.show_stopped_overlay()
-                            except:
-                                pass  # Ignore overlay errors during pause
+                        # Overlay remains visible from the single call above
                         
                         # Handle events while paused
                         for event in pygame.event.get():
@@ -363,21 +353,12 @@ class PygameDisplayManager:
                                         self.controller.toggle_pause()
                                     break
                     
-                    # Resume the video object
-                    try:
-                        if hasattr(video, 'resume'):
-                            video.resume()
-                            self.logger.info(f"[VIDEO-RESUME] Video object resumed successfully")
-                        elif hasattr(video, 'unpause'):
-                            video.unpause()
-                            self.logger.info(f"[VIDEO-RESUME] Video object unpaused successfully")
-                        elif hasattr(video, 'play'):
-                            video.play()
-                            self.logger.info(f"[VIDEO-RESUME] Video object play() called")
-                        else:
-                            self.logger.warning(f"[VIDEO-RESUME] Video object has no resume/unpause/play method")
-                    except Exception as e:
-                        self.logger.error(f"[VIDEO-RESUME] Failed to resume video: {e}")
+                    # Resume video when unpaused using synchronous method
+                    resume_success = self.resume_video()
+                    if resume_success:
+                        self.logger.info(f"[VIDEO-RESUME] Video successfully resumed")
+                    else:
+                        self.logger.warning(f"[VIDEO-RESUME] Failed to resume video")
                     
                     # Calculate how much time was spent paused
                     paused_duration = time.time() - paused_start_time
@@ -723,16 +704,63 @@ class PygameDisplayManager:
         self.video_playing = False
         self.logger.info("Video stopped")
     
-    def show_stopped_overlay(self) -> None:
-        """Show STOPPED overlay when slideshow is paused."""
-        try:
-            # Create semi-transparent overlay surface
-            overlay = pygame.Surface((self.screen_width, self.screen_height))
-            overlay.set_alpha(128)  # 50% transparency
-            overlay.fill((0, 0, 0))  # Black overlay
+    def pause_video(self) -> bool:
+        """Synchronously pause the currently playing video.
+        
+        Returns:
+            bool: True if video was successfully paused, False otherwise
+        """
+        if not self.video_playing or not self.current_video:
+            self.logger.debug("[VIDEO-PAUSE] No video playing to pause")
+            return False
             
-            # Draw the overlay on top of current content
-            self.screen.blit(overlay, (0, 0))
+        try:
+            if hasattr(self.current_video, 'pause'):
+                self.current_video.pause()
+                self.logger.info("[VIDEO-PAUSE] Video paused successfully")
+                return True
+            else:
+                self.logger.warning("[VIDEO-PAUSE] Video object has no pause method")
+                return False
+        except Exception as e:
+            self.logger.error(f"[VIDEO-PAUSE] Failed to pause video: {e}")
+            return False
+    
+    def resume_video(self) -> bool:
+        """Synchronously resume the currently paused video.
+        
+        Returns:
+            bool: True if video was successfully resumed, False otherwise
+        """
+        if not self.video_playing or not self.current_video:
+            self.logger.debug("[VIDEO-RESUME] No video playing to resume")
+            return False
+            
+        try:
+            if hasattr(self.current_video, 'resume'):
+                self.current_video.resume()
+                self.logger.info("[VIDEO-RESUME] Video resumed successfully")
+                return True
+            elif hasattr(self.current_video, 'unpause'):
+                self.current_video.unpause()
+                self.logger.info("[VIDEO-RESUME] Video unpaused successfully")
+                return True
+            elif hasattr(self.current_video, 'play'):
+                self.current_video.play()
+                self.logger.info("[VIDEO-RESUME] Video play() called successfully")
+                return True
+            else:
+                self.logger.warning("[VIDEO-RESUME] Video object has no resume/unpause/play method")
+                return False
+        except Exception as e:
+            self.logger.error(f"[VIDEO-RESUME] Failed to resume video: {e}")
+            return False
+    
+    def show_stopped_overlay(self) -> None:
+        """Show STOPPED overlay when slideshow is paused (centered message only, no black screen)."""
+        try:
+            # DON'T create full-screen black overlay - just show pause message
+            # The video/photo content should remain visible underneath
             
             # Create pause message with background
             stopped_text = self.font.render("SLIDESHOW PAUSED", True, self.WHITE)
