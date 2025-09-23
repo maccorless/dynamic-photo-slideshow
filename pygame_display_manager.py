@@ -29,7 +29,6 @@ class PygameDisplayManager:
     def __init__(self, config):
         self.config = config
         self.logger = logging.getLogger(__name__)
-        self.config = config
         self.screen = None
         self.screen_width = 0
         self.screen_height = 0
@@ -55,12 +54,7 @@ class PygameDisplayManager:
         self.font = pygame.font.Font(None, 48)
         self.small_font = pygame.font.Font(None, 24)
         
-        # Pre-render static instruction surfaces
-        self.instructions_surfaces = [
-            self.small_font.render("ESC: Exit", True, self.WHITE),
-            self.small_font.render("SPACE: Next", True, self.WHITE),
-            self.small_font.render("Dynamic Photo Slideshow", True, self.WHITE),
-        ]
+        # Removed: Pre-rendered instruction surfaces (no longer used in video overlays)
         
         # State management
         self.running = True
@@ -593,11 +587,7 @@ class PygameDisplayManager:
                 self.screen.blit(bg_surface, bg_rect.topleft)
                 self.screen.blit(self._countdown_text, self._countdown_rect)
             
-            # Instructions
-            y_offset = self.screen_height - 100
-            for surf in self.instructions_surfaces:
-                self.screen.blit(surf, (20, y_offset))
-                y_offset += 25
+            # Removed: Instruction overlays (per requirements)
                 
         except Exception as e:
             self.logger.error(f"Error adding video overlays: {e}")
@@ -874,10 +864,7 @@ class PygameDisplayManager:
         self._countdown_text = None
         self._countdown_rect = None
     
-    def _add_video_overlays(self, video_path: str, remaining_time: int) -> None:
-        """Render countdown overlay if active."""
-        if self._countdown_text and self._countdown_rect:
-            self.screen.blit(self._countdown_text, self._countdown_rect)
+    # REMOVED: Duplicate _add_video_overlays method that overrides the proper one above
     
     def _render_slideshow_countdown(self, slideshow_timer: int) -> None:
         """Render slideshow countdown timer using the calculated slideshow_timer value."""
