@@ -464,17 +464,20 @@ class SlideshowController:
             if self.history_position == -1:
                 self._add_slide_to_history(slide)
             
-            # Start timer for this slide (only if playing)
-            # For videos, timer will be started by display manager when video is ready
-            # For photos, start timer immediately since they display synchronously
-            if self.is_playing:
-                slide_type = slide.get('type', 'unknown')
-                if slide_type == 'video':
-                    # Timer will be started by video display manager when ready
-                    self.logger.info(f"[TIMER-MGR] Video slide - timer will start when video is ready")
-                else:
-                    # Photos display immediately, start timer now
-                    self._start_slide_timer_new(slide)  # NEW: Use timer manager
+            # Timer creation - NEW: Always create timer manager regardless of pause state
+            slide_type = slide.get('type', 'unknown')
+            self._create_slide_timer_manager(slide)
+            
+            # Start timer only if playing and not video (videos start their own timers)
+            if self.is_playing and slide_type != 'video':
+                # Photos display immediately, start timer now
+                self._start_timer_manager()
+            elif slide_type == 'video':
+                # Video will start timer when ready (handled by video display manager)
+                self.logger.info(f"[TIMER-MGR] Video slide - timer will start when video is ready")
+            else:
+                # Slideshow is paused - timer manager created but not started
+                self.logger.info(f"[TIMER-MGR] Timer manager created but not started - slideshow is paused")
             
             self.logger.info(f"[DISPLAY] Successfully displayed {slide['type']} slide with timer")
             return True
@@ -529,22 +532,43 @@ class SlideshowController:
         
         self.logger.info(f"[TIMER-MGR] Previous slide cleanup complete - ready for new timer manager")
     
-    def _start_slide_timer_new(self, slide: Dict[str, Any]) -> None:
-        """Start timer using new SlideTimerManager (replaces _start_slide_timer)."""
-        if not self.is_playing:
-            return
-        
+    def _create_slide_timer_manager(self, slide: Dict[str, Any]) -> None:
+        """Create timer manager for slide (always called regardless of pause state)."""
         # Create new timer manager for this slide (cleanup already done in _display_slide_with_timer)
         self.current_timer_manager = SlideTimerManager(self, self.logger)
         
-        # Start timing for this slide
         slide_timer = slide.get('slide_timer', 10)  # Default 10 seconds
         slide_type = slide.get('type', 'unknown')
         
         self.logger.info(f"[TIMER-MGR] Created fresh timer manager for {slide_type} slide")
-        self.logger.info(f"[TIMER-MGR] Starting {slide_timer}s timing for {slide_type} slide")
-        self.current_timer_manager.start_slide_timing(slide_timer, slide_type)
-        self.logger.info(f"[TIMER-MGR] Timer manager started successfully for {slide_type} slide")
+        
+        # Store slide info for potential timer start
+        self._pending_slide_timer = slide_timer
+        self._pending_slide_type = slide_type
+    
+    def _start_timer_manager(self) -> None:
+        """Start the timer manager (only called when slideshow is playing)."""
+        if self.current_timer_manager and hasattr(self, '_pending_slide_timer'):
+            slide_timer = self._pending_slide_timer
+            slide_type = self._pending_slide_type
+            
+            self.logger.info(f"[TIMER-MGR] Starting {slide_timer}s timing for {slide_type} slide")
+            self.current_timer_manager.start_slide_timing(slide_timer, slide_type)
+            self.logger.info(f"[TIMER-MGR] Timer manager started successfully for {slide_type} slide")
+            
+            # Clean up pending info
+            delattr(self, '_pending_slide_timer')
+            delattr(self, '_pending_slide_type')
+        else:
+            self.logger.warning(f"[TIMER-MGR] Cannot start timer - manager: {self.current_timer_manager is not None}, pending: {hasattr(self, '_pending_slide_timer')}")
+    
+    def _start_slide_timer_new(self, slide: Dict[str, Any]) -> None:
+        """Legacy method - now routes to split create/start approach."""
+        self._create_slide_timer_manager(slide)
+        if self.is_playing:
+            self._start_timer_manager()
+        else:
+            self.logger.info(f"[TIMER-MGR] Timer manager created but not started - slideshow is paused")
     
     def _pause_timer_new(self) -> None:
         """Pause timer using new SlideTimerManager (replaces _pause_timer)."""
@@ -560,12 +584,17 @@ class SlideshowController:
     def _resume_timer_new(self) -> None:
         """Resume timer using new SlideTimerManager (replaces _resume_timer)."""
         if self.current_timer_manager and self.paused_remaining_time is not None:
+            # Resume existing paused timer
             slide_type = self.current_slide.get('type', 'unknown') if self.current_slide else 'unknown'
             self.logger.info(f"[TIMER-MGR] Resuming timer with {self.paused_remaining_time:.1f}s remaining")
             self.current_timer_manager.resume_timing(self.paused_remaining_time, slide_type)
             self.paused_remaining_time = None
+        elif self.current_timer_manager and hasattr(self, '_pending_slide_timer'):
+            # Timer manager exists but was never started (created during pause) - start it now
+            self.logger.info(f"[TIMER-MGR] Starting timer that was created during pause")
+            self._start_timer_manager()
         else:
-            self.logger.warning(f"[TIMER-MGR] Cannot resume - timer_manager: {self.current_timer_manager is not None}, remaining_time: {self.paused_remaining_time}")
+            self.logger.warning(f"[TIMER-MGR] Cannot resume - timer_manager: {self.current_timer_manager is not None}, remaining_time: {self.paused_remaining_time}, pending: {hasattr(self, '_pending_slide_timer') if hasattr(self, 'current_timer_manager') else False}")
     
     def start_video_timer(self, slide: Dict[str, Any]) -> None:
         """Video timer start - NOT NEEDED since video completion callback handles advancement."""
