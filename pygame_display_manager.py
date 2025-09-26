@@ -341,21 +341,25 @@ class PygameDisplayManager:
             while self.running and self.video_playing and (time.time() - start_time) < max_duration:
                 # Render at least one frame with overlays before checking pause
                 if not first_frame_rendered:
-                    # Get and display first frame using correct pyvidplayer2 API
+                    # Try to render first frame, but don't fail if video isn't ready yet
                     try:
-                        self.screen.fill(self.BLACK)
-                        video.draw(self.screen, video_pos)
-                        
-                        # Add overlays to first frame
-                        remaining_time = max(0, int(max_duration - (time.time() - start_time)))
-                        self._add_video_overlays(video_path, remaining_time, self.current_video_overlays)
-                        
-                        pygame.display.flip()
+                        # Check if video is ready for drawing
+                        if hasattr(video, 'draw') and video.active:
+                            self.screen.fill(self.BLACK)
+                            video.draw(self.screen, video_pos)
+                            
+                            # Add overlays to first frame
+                            remaining_time = max(0, int(max_duration - (time.time() - start_time)))
+                            self._add_video_overlays(video_path, remaining_time, self.current_video_overlays)
+                            
+                            pygame.display.flip()
+                            self.logger.info(f"[VIDEO-FIRST-FRAME] Rendered first frame with overlays")
+                        else:
+                            self.logger.info(f"[VIDEO-FIRST-FRAME] Video not ready yet, will render in main loop")
                         first_frame_rendered = True
-                        self.logger.info(f"[VIDEO-FIRST-FRAME] Rendered first frame with overlays")
                     except Exception as e:
-                        self.logger.error(f"[VIDEO-FIRST-FRAME] Error rendering first frame: {e}")
-                        first_frame_rendered = True  # Skip this step and continue
+                        self.logger.warning(f"[VIDEO-FIRST-FRAME] Could not render first frame (video not ready): {e}")
+                        first_frame_rendered = True  # Continue anyway
                 
                 # Check if slideshow is paused (after first frame is rendered)
                 if hasattr(self, 'controller') and self.controller and self.controller.is_paused:
