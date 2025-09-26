@@ -43,6 +43,14 @@ This file tracks confirmed working functionality and fixes applied, with user ve
 
 ---
 
+### 2025-09-26 - Fix Countdown Display After Pause→Navigation
+**Status**: FIXED ✅  
+**User Comment**: "TEST 3 now passes"  
+**Technical Details**: Fixed resume logic to use current slide info instead of stale pending data. Countdown display now works correctly after pause→navigation sequence.  
+**Commit**: 58e0008
+
+---
+
 ### [Date] - [Feature/Fix Description]
 **Status**: [WORKING/BROKEN/FIXED]  
 **User Comment**: [KC's verification comment]  

@@ -335,8 +335,27 @@ class PygameDisplayManager:
             else:
                 self.logger.warning(f"[VIDEO-READY] No controller available to start timer")
             
+            # Always render first frame with overlays before checking pause state
+            first_frame_rendered = False
+            
             while self.running and self.video_playing and (time.time() - start_time) < max_duration:
-                # Check if slideshow is paused
+                # Render at least one frame with overlays before checking pause
+                if not first_frame_rendered:
+                    # Get and display first frame
+                    if video.get_frame():
+                        frame_surface = video.get_surface()
+                        self.screen.fill(self.BLACK)
+                        self.screen.blit(frame_surface, video_pos)
+                        
+                        # Add overlays to first frame
+                        remaining_time = max(0, int(max_duration - (time.time() - start_time)))
+                        self._add_video_overlays(video_path, remaining_time, self.current_video_overlays)
+                        
+                        pygame.display.flip()
+                        first_frame_rendered = True
+                        self.logger.info(f"[VIDEO-FIRST-FRAME] Rendered first frame with overlays")
+                
+                # Check if slideshow is paused (after first frame is rendered)
                 if hasattr(self, 'controller') and self.controller and self.controller.is_paused:
                     self.logger.info(f"[VIDEO-PAUSE] Video paused by slideshow controller")
                     
