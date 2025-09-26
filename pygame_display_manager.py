@@ -1006,7 +1006,9 @@ class PygameDisplayManager:
                 self.screen.blit(self._countdown_text, self._countdown_rect)
                 
                 # Only call flip() for photos (videos handle their own display updates)
-                if not hasattr(self, 'video_playing') or not self.video_playing:
+                video_state = getattr(self, 'video_playing', False)
+                self.logger.info(f"[COUNTDOWN-DEBUG] video_playing state: {video_state}, calling flip: {not video_state}")
+                if not video_state:
                     pygame.display.flip()
                 
         except Exception as e:
