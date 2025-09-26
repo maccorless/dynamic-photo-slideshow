@@ -335,116 +335,100 @@ class PygameDisplayManager:
             else:
                 self.logger.warning(f"[VIDEO-READY] No controller available to start timer")
             
-            # Always render first frame with overlays before checking pause state
-            first_frame_rendered = False
-            
-            while self.running and self.video_playing and (time.time() - start_time) < max_duration:
-                # Render at least one frame with overlays before checking pause
-                if not first_frame_rendered:
-                    # Try to render first frame, but don't fail if video isn't ready yet
+            # Handle immediate pause during navigation: let video play briefly to load first frame
+            if hasattr(self, 'controller') and self.controller and self.controller.is_paused:
+                self.logger.info(f"[VIDEO-PAUSE-NAV] Video paused during navigation - loading first frame before pausing")
+                
+                # Let video play briefly (1-2 frames) to load actual content
+                frame_load_start = time.time()
+                frames_rendered = 0
+                while frames_rendered < 2 and (time.time() - frame_load_start) < 0.1:  # Max 100ms, 2 frames
                     try:
-                        # Check if video is ready for drawing
-                        if hasattr(video, 'draw') and video.active:
+                        if video.active:
                             self.screen.fill(self.BLACK)
                             video.draw(self.screen, video_pos)
                             
-                            # Add overlays to first frame
+                            # Add overlays to frame
                             remaining_time = max(0, int(max_duration - (time.time() - start_time)))
                             self._add_video_overlays(video_path, remaining_time, self.current_video_overlays)
                             
                             pygame.display.flip()
-                            self.logger.info(f"[VIDEO-FIRST-FRAME] Rendered first frame with overlays")
+                            frames_rendered += 1
+                            self.logger.info(f"[VIDEO-PAUSE-NAV] Rendered frame {frames_rendered} during pause navigation")
+                            
+                            # Small delay to let video advance to next frame
+                            pygame.time.wait(33)  # ~30fps timing
                         else:
-                            self.logger.info(f"[VIDEO-FIRST-FRAME] Video not ready yet, will render in main loop")
-                        first_frame_rendered = True
+                            break
                     except Exception as e:
-                        self.logger.warning(f"[VIDEO-FIRST-FRAME] Could not render first frame (video not ready): {e}")
-                        first_frame_rendered = True  # Continue anyway
+                        self.logger.warning(f"[VIDEO-PAUSE-NAV] Error rendering frame during pause navigation: {e}")
+                        break
                 
-                # Check if slideshow is paused (after first frame is rendered)
-                if hasattr(self, 'controller') and self.controller and self.controller.is_paused:
-                    self.logger.info(f"[VIDEO-PAUSE] Video paused by slideshow controller")
+                # Now pause the video with actual content loaded
+                pause_success = self.pause_video()
+                if pause_success:
+                    self.logger.info(f"[VIDEO-PAUSE-NAV] Video paused after loading {frames_rendered} frames")
+                else:
+                    self.logger.warning(f"[VIDEO-PAUSE-NAV] Failed to pause video after frame loading")
+                
+                # Show pause overlay on top of video content
+                self._show_pause_overlay_no_flip()
+                pygame.display.flip()
+                
+                # Wait in paused state
+                paused_start_time = time.time()
+                while (self.running and self.video_playing and 
+                       hasattr(self, 'controller') and self.controller and self.controller.is_paused):
+                    pygame.time.wait(50)  # Small delay to prevent busy waiting
                     
-                    # Use synchronous pause method
-                    pause_success = self.pause_video()
-                    if pause_success:
-                        self.logger.info(f"[VIDEO-PAUSE] Video successfully paused, showing overlay")
-                    else:
-                        self.logger.warning(f"[VIDEO-PAUSE] Failed to pause video, showing overlay anyway")
-                    
-                    # Re-render the video frame with pause overlay on top (don't let pause overlay overwrite frame)
-                    if not first_frame_rendered:
-                        # If we paused before first frame, render it now with pause overlay
-                        try:
-                            self.screen.fill(self.BLACK)
-                            video.draw(self.screen, video_pos)
-                            remaining_time = max(0, int(max_duration - (time.time() - start_time)))
-                            self._add_video_overlays(video_path, remaining_time, self.current_video_overlays)
-                            first_frame_rendered = True
-                        except Exception as e:
-                            self.logger.error(f"[VIDEO-PAUSE-FRAME] Error rendering frame during pause: {e}")
-                    
-                    # Show pause overlay on top of video frame (without calling flip)
-                    self._show_pause_overlay_no_flip()
-                    pygame.display.flip()  # Single flip with video + overlays + pause message
-                    
-                    paused_start_time = time.time()
-                    
-                    # Wait while paused - overlay is already shown above
-                    while (self.running and self.video_playing and 
-                           hasattr(self, 'controller') and self.controller and self.controller.is_paused):
-                        pygame.time.wait(50)  # Small delay to prevent busy waiting
-                        # Overlay remains visible from the single call above
-                        
-                        # Handle events while paused
-                        for event in pygame.event.get():
-                            if event.type == pygame.QUIT:
+                    # Handle events while paused (navigation, unpause, etc.)
+                    for event in pygame.event.get():
+                        if event.type == pygame.QUIT:
+                            self.running = False
+                            self.video_playing = False
+                            video.close()
+                            return False
+                        elif event.type == pygame.KEYDOWN:
+                            if event.key == pygame.K_ESCAPE:
                                 self.running = False
                                 self.video_playing = False
                                 video.close()
                                 return False
-                            elif event.type == pygame.KEYDOWN:
-                                if event.key == pygame.K_ESCAPE:
-                                    self.running = False
-                                    self.video_playing = False
-                                    video.close()
-                                    return False
-                                elif event.key == pygame.K_SPACE:
-                                    # Resume video - let controller handle this
-                                    if hasattr(self, 'controller') and self.controller:
-                                        self.controller.toggle_pause()
-                                    break
-                                elif event.key in [pygame.K_RIGHT, pygame.K_n]:
-                                    # Next while paused - exit video and navigate
-                                    self.video_playing = False
-                                    video.close()
-                                    if hasattr(self, 'controller') and self.controller:
-                                        self.controller.next_photo()
-                                    return True
-                                elif event.key in [pygame.K_LEFT, pygame.K_b]:
-                                    # Previous while paused - exit video and navigate  
-                                    self.video_playing = False
-                                    video.close()
-                                    if hasattr(self, 'controller') and self.controller:
-                                        self.controller.previous_photo()
-                                    return True
-                    
-                    # Resume video when unpaused using synchronous method
-                    resume_success = self.resume_video()
-                    if resume_success:
-                        self.logger.info(f"[VIDEO-RESUME] Video successfully resumed")
-                    else:
-                        self.logger.warning(f"[VIDEO-RESUME] Failed to resume video")
-                    
-                    # Calculate how much time was spent paused
-                    paused_duration = time.time() - paused_start_time
-                    self.logger.info(f"[VIDEO-RESUME] Video resumed after {paused_duration:.1f}s pause")
-                    
-                    # Adjust start_time to account for pause duration
-                    # This ensures the video timing is correct
-                    start_time += paused_duration
-                    
-                    continue  # Continue video playback from where we left off
+                            elif event.key == pygame.K_SPACE:
+                                # Resume video - let controller handle this
+                                if hasattr(self, 'controller') and self.controller:
+                                    self.controller.toggle_pause()
+                                break
+                            elif event.key in [pygame.K_RIGHT, pygame.K_n]:
+                                # Next while paused - exit video and navigate
+                                self.video_playing = False
+                                video.close()
+                                if hasattr(self, 'controller') and self.controller:
+                                    self.controller.next_photo()
+                                return True
+                            elif event.key in [pygame.K_LEFT, pygame.K_b]:
+                                # Previous while paused - exit video and navigate  
+                                self.video_playing = False
+                                video.close()
+                                if hasattr(self, 'controller') and self.controller:
+                                    self.controller.previous_photo()
+                                return True
+                
+                # Resume video when unpaused
+                resume_success = self.resume_video()
+                if resume_success:
+                    self.logger.info(f"[VIDEO-RESUME] Video successfully resumed after pause navigation")
+                else:
+                    self.logger.warning(f"[VIDEO-RESUME] Failed to resume video after pause navigation")
+                
+                # Calculate pause duration and adjust timing
+                paused_duration = time.time() - paused_start_time
+                start_time += paused_duration
+                self.logger.info(f"[VIDEO-RESUME] Adjusted timing after {paused_duration:.1f}s pause")
+            
+            # Normal video playback loop
+            while self.running and self.video_playing and (time.time() - start_time) < max_duration:
+                # Normal playback continues - pause during navigation is handled above
                 # Handle events
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
