@@ -376,6 +376,20 @@ class PygameDisplayManager:
                                     if hasattr(self, 'controller') and self.controller:
                                         self.controller.toggle_pause()
                                     break
+                                elif event.key in [pygame.K_RIGHT, pygame.K_n]:
+                                    # Next while paused - exit video and navigate
+                                    self.video_playing = False
+                                    video.close()
+                                    if hasattr(self, 'controller') and self.controller:
+                                        self.controller.next_photo()
+                                    return True
+                                elif event.key in [pygame.K_LEFT, pygame.K_b]:
+                                    # Previous while paused - exit video and navigate  
+                                    self.video_playing = False
+                                    video.close()
+                                    if hasattr(self, 'controller') and self.controller:
+                                        self.controller.previous_photo()
+                                    return True
                     
                     # Resume video when unpaused using synchronous method
                     resume_success = self.resume_video()
@@ -987,10 +1001,10 @@ class PygameDisplayManager:
                 self._countdown_rect = self._countdown_text.get_rect(topright=(self.screen_width - 50, 50))
                 self._last_countdown = remaining_seconds
             
-            # Render countdown immediately to screen and update display
+            # Render countdown to screen buffer (main loop will handle display.flip())
             if self._countdown_text and self._countdown_rect:
                 self.screen.blit(self._countdown_text, self._countdown_rect)
-                pygame.display.flip()
+                # Removed pygame.display.flip() - let main display loop handle screen updates
                 
         except Exception as e:
             self.logger.error(f"Error showing countdown: {e}")
