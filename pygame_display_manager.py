@@ -1001,10 +1001,13 @@ class PygameDisplayManager:
                 self._countdown_rect = self._countdown_text.get_rect(topright=(self.screen_width - 50, 50))
                 self._last_countdown = remaining_seconds
             
-            # Render countdown to screen buffer (main loop will handle display.flip())
+            # Render countdown to screen buffer
             if self._countdown_text and self._countdown_rect:
                 self.screen.blit(self._countdown_text, self._countdown_rect)
-                # Removed pygame.display.flip() - let main display loop handle screen updates
+                
+                # Only call flip() for photos (videos handle their own display updates)
+                if not hasattr(self, 'video_playing') or not self.video_playing:
+                    pygame.display.flip()
                 
         except Exception as e:
             self.logger.error(f"Error showing countdown: {e}")
