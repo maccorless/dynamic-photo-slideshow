@@ -591,8 +591,20 @@ class SlideshowController:
             self.paused_remaining_time = None
         elif self.current_timer_manager and hasattr(self, '_pending_slide_timer'):
             # Timer manager exists but was never started (created during pause) - start it now
-            self.logger.info(f"[TIMER-MGR] Starting timer that was created during pause")
-            self._start_timer_manager()
+            # Use current slide info, not stale pending info
+            if self.current_slide:
+                current_slide_type = self.current_slide.get('type', 'unknown')
+                current_slide_timer = self.current_slide.get('slide_timer', 10)
+                self.logger.info(f"[TIMER-MGR] Starting timer for current slide: {current_slide_type} ({current_slide_timer}s)")
+                self.current_timer_manager.start_slide_timing(current_slide_timer, current_slide_type)
+                # Clean up pending info
+                if hasattr(self, '_pending_slide_timer'):
+                    delattr(self, '_pending_slide_timer')
+                if hasattr(self, '_pending_slide_type'):
+                    delattr(self, '_pending_slide_type')
+            else:
+                self.logger.warning(f"[TIMER-MGR] No current slide available for resume")
+                self._start_timer_manager()
         else:
             self.logger.warning(f"[TIMER-MGR] Cannot resume - timer_manager: {self.current_timer_manager is not None}, remaining_time: {self.paused_remaining_time}, pending: {hasattr(self, '_pending_slide_timer') if hasattr(self, 'current_timer_manager') else False}")
     
