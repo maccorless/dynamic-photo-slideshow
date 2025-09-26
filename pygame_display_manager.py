@@ -365,11 +365,24 @@ class PygameDisplayManager:
                     pause_success = self.pause_video()
                     if pause_success:
                         self.logger.info(f"[VIDEO-PAUSE] Video successfully paused, showing overlay")
-                        # Now show the overlay after video is paused
-                        self.show_stopped_overlay()
                     else:
                         self.logger.warning(f"[VIDEO-PAUSE] Failed to pause video, showing overlay anyway")
-                        self.show_stopped_overlay()
+                    
+                    # Re-render the video frame with pause overlay on top (don't let pause overlay overwrite frame)
+                    if not first_frame_rendered:
+                        # If we paused before first frame, render it now with pause overlay
+                        try:
+                            self.screen.fill(self.BLACK)
+                            video.draw(self.screen, video_pos)
+                            remaining_time = max(0, int(max_duration - (time.time() - start_time)))
+                            self._add_video_overlays(video_path, remaining_time, self.current_video_overlays)
+                            first_frame_rendered = True
+                        except Exception as e:
+                            self.logger.error(f"[VIDEO-PAUSE-FRAME] Error rendering frame during pause: {e}")
+                    
+                    # Show pause overlay on top of video frame (without calling flip)
+                    self._show_pause_overlay_no_flip()
+                    pygame.display.flip()  # Single flip with video + overlays + pause message
                     
                     paused_start_time = time.time()
                     
@@ -917,12 +930,9 @@ class PygameDisplayManager:
             self.logger.error(f"[VIDEO-RESUME] Failed to resume video: {e}")
             return False
     
-    def show_stopped_overlay(self) -> None:
-        """Show STOPPED overlay when slideshow is paused (centered message only, no black screen)."""
+    def _show_pause_overlay_no_flip(self) -> None:
+        """Show pause overlay without calling pygame.display.flip() - for composite rendering."""
         try:
-            # DON'T create full-screen black overlay - just show pause message
-            # The video/photo content should remain visible underneath
-            
             # Create pause message with background
             stopped_text = self.font.render("SLIDESHOW PAUSED", True, self.WHITE)
             stopped_rect = stopped_text.get_rect(center=(self.screen_width // 2, self.screen_height // 2))
@@ -944,11 +954,15 @@ class PygameDisplayManager:
             pygame.draw.rect(self.screen, self.WHITE, inst_bg_rect, 1)
             
             self.screen.blit(instruction_text, instruction_rect)
-            
-            pygame.display.flip()
+            # Note: No pygame.display.flip() - caller handles display update
             
         except Exception as e:
-            self.logger.error(f"Error showing stopped overlay: {e}")
+            self.logger.error(f"Error showing pause overlay: {e}")
+
+    def show_stopped_overlay(self) -> None:
+        """Show STOPPED overlay when slideshow is paused (centered message only, no black screen)."""
+        self._show_pause_overlay_no_flip()
+        pygame.display.flip()
     
     # REMOVED: show_video_pause_overlay() - now using unified show_stopped_overlay() for both photos and videos
     
