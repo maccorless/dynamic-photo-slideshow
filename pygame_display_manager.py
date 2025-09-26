@@ -341,11 +341,10 @@ class PygameDisplayManager:
             while self.running and self.video_playing and (time.time() - start_time) < max_duration:
                 # Render at least one frame with overlays before checking pause
                 if not first_frame_rendered:
-                    # Get and display first frame
-                    if video.get_frame():
-                        frame_surface = video.get_surface()
+                    # Get and display first frame using correct pyvidplayer2 API
+                    try:
                         self.screen.fill(self.BLACK)
-                        self.screen.blit(frame_surface, video_pos)
+                        video.draw(self.screen, video_pos)
                         
                         # Add overlays to first frame
                         remaining_time = max(0, int(max_duration - (time.time() - start_time)))
@@ -354,6 +353,9 @@ class PygameDisplayManager:
                         pygame.display.flip()
                         first_frame_rendered = True
                         self.logger.info(f"[VIDEO-FIRST-FRAME] Rendered first frame with overlays")
+                    except Exception as e:
+                        self.logger.error(f"[VIDEO-FIRST-FRAME] Error rendering first frame: {e}")
+                        first_frame_rendered = True  # Skip this step and continue
                 
                 # Check if slideshow is paused (after first frame is rendered)
                 if hasattr(self, 'controller') and self.controller and self.controller.is_paused:
