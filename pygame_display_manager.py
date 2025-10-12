@@ -371,7 +371,10 @@ class PygameDisplayManager:
                                     video.close()
                                     return False
                                 elif event.key == pygame.K_SPACE:
-                                    # Resume handled by controller
+                                    # Explicitly toggle pause so controller state updates
+                                    if hasattr(self, 'controller') and self.controller:
+                                        self.controller.toggle_pause()
+                                    # Break inner event processing; loop condition will re-check is_paused
                                     break
                                 elif event.key in [pygame.K_RIGHT, pygame.K_n]:
                                     # Navigate while paused

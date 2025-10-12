@@ -51,10 +51,19 @@ This file tracks confirmed working functionality and fixes applied, with user ve
 
 ---
 
-### [Date] - [Feature/Fix Description]
-**Status**: [WORKING/BROKEN/FIXED]  
-**User Comment**: [KC's verification comment]  
-**Technical Details**: [What was actually changed]  
-**Commit**: [commit hash if changes made]
+### 2025-10-12 - Current Functionality Test (Commit 54257b7)
+**Status**: MOSTLY WORKING ✅  
+**User Comment**: 
+- ✅ Back key works
+- ✅ Next key works  
+- ✅ Navigation while paused works
+- ✅ Unpause works ok now
+- ❌ **BUG**: When navigating while paused to arrive at a video slide, the previous photo slide stays on screen instead of showing the first frame of the video
+
+**Technical Details**: Testing after uncommitted video unpause fix in pygame_display_manager.py  
+**Commit**: 54257b7 (with uncommitted changes)
+
+**Known Bug to Fix Later**:
+- **Video First Frame During Paused Navigation**: When paused and navigating to a video slide, the display should show the video's first frame but currently shows the previous slide instead. This is a visual issue only - the video is loaded and will play correctly when unpaused.
 
 ---
