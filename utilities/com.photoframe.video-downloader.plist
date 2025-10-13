@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Job label - must be unique -->
+    <key>Label</key>
+    <string>com.photoframe.video-downloader</string>
+    
+    <!-- Program to run -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/ken/CascadeProjects/photo-slideshow/slideshow_env/bin/python</string>
+        <string>/Users/ken/CascadeProjects/photo-slideshow/utilities/download_ally_videos.py</string>
+        <string>--verbose</string>
+    </array>
+    
+    <!-- Run daily at 3:00 AM -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    
+    <!-- Also run on load (for testing) - remove this after testing -->
+    <key>RunAtLoad</key>
+    <false/>
+    
+    <!-- Standard output log -->
+    <key>StandardOutPath</key>
+    <string>/Users/ken/.photo_slideshow_cache/logs/video-downloader-stdout.log</string>
+    
+    <!-- Standard error log -->
+    <key>StandardErrorPath</key>
+    <string>/Users/ken/.photo_slideshow_cache/logs/video-downloader-stderr.log</string>
+    
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <string>/Users/ken/CascadeProjects/photo-slideshow</string>
+    
+    <!-- Keep the job loaded -->
+    <key>KeepAlive</key>
+    <false/>
+    
+    <!-- Environment variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>
