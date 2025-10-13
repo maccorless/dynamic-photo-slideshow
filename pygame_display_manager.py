@@ -970,7 +970,7 @@ class PygameDisplayManager:
             import traceback
             self.logger.error(f"Traceback: {traceback.format_exc()}")
     
-    def show_countdown(self, remaining_seconds: int) -> None:
+    def show_countdown(self, remaining_seconds: int, manager_id: str = "UNKNOWN") -> None:
         """Show countdown timer overlay in top-right corner."""
         try:
             if not self.config.get('show_countdown_timer', False):
@@ -979,10 +979,10 @@ class PygameDisplayManager:
             # Add detailed debugging for countdown display calls
             import threading
             thread_id = threading.current_thread().ident
-            self.logger.info(f"[COUNTDOWN-DISPLAY] Thread-{thread_id}: show_countdown({remaining_seconds}s) called, last_countdown: {self._last_countdown}")
+            self.logger.info(f"[COUNTDOWN-DISPLAY] {manager_id} Thread-{thread_id}: show_countdown({remaining_seconds}s) called, last_countdown: {self._last_countdown}")
             
             if remaining_seconds <= 0:
-                self.logger.info(f"[COUNTDOWN-DISPLAY] Thread-{thread_id}: Skipping display - remaining_seconds <= 0")
+                self.logger.info(f"[COUNTDOWN-DISPLAY] {manager_id} Thread-{thread_id}: Skipping display - remaining_seconds <= 0")
                 return
             
             # Only update countdown text when value changes to prevent flicker

@@ -83,10 +83,7 @@ class SlideshowController:
         # Timer advancement flag for main thread processing (macOS compatibility)
         self.timer_advance_requested = False
         
-        # Timer tracking for countdown display
-        self.timer_start_time = None
-        self.timer_duration = None
-        self.countdown_thread = None  # Track current countdown thread
+        # Pause state tracking
         self.pause_start_time = None  # Track when pause started
         self.paused_remaining_time = None  # Track remaining time when paused
         
@@ -111,11 +108,17 @@ class SlideshowController:
         # Check current timer state
         if self.current_timer_manager:
             remaining = self.current_timer_manager.get_remaining_time()
-            is_active = self.current_timer_manager.is_timer_active()
-            self.logger.info(f"[ADVANCE-DEBUG] Timer manager active: {is_active}")
+            self.logger.info(f"[ADVANCE-DEBUG] Timer manager active: {self.current_timer_manager.is_timer_active()}")
             self.logger.info(f"[ADVANCE-DEBUG] Timer remaining: {remaining:.3f}s")
         else:
-            self.logger.info(f"[ADVANCE-DEBUG] No timer manager active")
+            self.logger.info(f"[ADVANCE-DEBUG] No timer manager")
+        
+        # Check conditions for advancing
+        if not self.is_running:
+            return False
+        
+        # NOTE: Timer cleanup is handled by _display_slide_with_timer() -> _cleanup_previous_slide_timers()
+        # DO NOT call _stop_current_timer() here as it causes duplicate cleanup and orphaned threads
         
         self.logger.info(f"[ADVANCE] Slideshow advancement triggered by {trigger.value}, direction: {direction.value}")
         
@@ -126,10 +129,7 @@ class SlideshowController:
             self.logger.info(f"[ADVANCE] Slideshow paused, ignoring {trigger.value}")
             return False
         
-        # 1. Stop current timer (if any)
-        self._stop_current_timer()
-        
-        # 2. Determine next slide (create new or get from history)
+        # Determine next slide (create new or get from history)
         slide = self._determine_next_slide(direction)
         if not slide:
             self.logger.error("[ADVANCE] Failed to determine next slide")
@@ -216,9 +216,6 @@ class SlideshowController:
             self.logger.debug("[TIMER] Stopping current timer manager")
             self.current_timer_manager.cancel_all_timers()
             self.current_timer_manager = None
-        
-        # Stop countdown display thread
-        self._stop_countdown_display_thread()
     
     def _get_video_duration(self, video_path: str) -> float:
         """Get video duration in seconds using ffprobe."""
@@ -446,6 +443,9 @@ class SlideshowController:
             self.logger.info(f"[DISPLAY] Cleaning up all previous timers before displaying new slide")
             self._cleanup_previous_slide_timers()
             
+            # Capture the slide ID BEFORE updating current_slide (for race condition check later)
+            incoming_slide_id = slide.get('slide_id')
+            
             # Update current slide state
             self.current_slide = slide
             self.slideshow_timer = slide['slide_timer']
@@ -454,15 +454,25 @@ class SlideshowController:
             self.logger.info(f"[TRACE] _display_slide_with_timer called with slide type: {slide.get('type')}")
             self.logger.info(f"[TRACE] About to call _display_slide_content")
             
-            # Display the slide based on its type
-            display_success = self._display_slide_content(slide)
-            self.logger.info(f"[TRACE] _display_slide_content returned: {display_success}")
-            if not display_success:
-                return False
+            # Display the slide content (photos/videos)
+            result = self._display_slide_content(slide)
+            self.logger.info(f"[TRACE] _display_slide_content returned: {result}")
             
             # Add to history if it's a new slide (not from history navigation)
             if self.history_position == -1:
                 self._add_slide_to_history(slide)
+            
+            # Timer creation - Check we're still on this slide (prevents race condition with async video display)
+            # Use the captured incoming_slide_id from before current_slide was updated
+            current_slide_id = self.current_slide.get('slide_id') if self.current_slide else None
+            
+            self.logger.info(f"[TIMER-MGR-CHECK] Slide ID check: incoming={incoming_slide_id}, current={current_slide_id}")
+            
+            if incoming_slide_id and current_slide_id and incoming_slide_id != current_slide_id:
+                self.logger.info(f"[TIMER-MGR] Skipping timer creation - slide changed (was {incoming_slide_id}, now {current_slide_id})")
+                return True
+            
+            self.logger.info(f"[TIMER-MGR-CHECK] Proceeding with timer creation (slide IDs match or not available)")
             
             # Timer creation - NEW: Always create timer manager regardless of pause state
             slide_type = slide.get('type', 'unknown')
@@ -519,10 +529,31 @@ class SlideshowController:
     
     def _cleanup_previous_slide_timers(self) -> None:
         """Clean up all timers from previous slide before starting new one."""
+        import threading
+        import time
+        cleanup_start = time.time()
+        thread_id = threading.current_thread().ident
+        
+        self.logger.info(f"[CLEANUP-START] Thread-{thread_id} at {cleanup_start:.3f}: Starting cleanup, current_timer_manager={self.current_timer_manager}")
+        
         if self.current_timer_manager:
-            self.logger.info(f"[TIMER-MGR] Cleaning up previous slide timers")
+            manager_id = getattr(self.current_timer_manager, 'manager_id', 'UNKNOWN')
+            countdown_thread = self.current_timer_manager.countdown_thread
+            countdown_alive = countdown_thread.is_alive() if countdown_thread else False
+            countdown_id = countdown_thread.ident if countdown_thread else None
+            
+            self.logger.info(f"[CLEANUP-DETAIL] Cleaning up {manager_id}, countdown_thread_alive={countdown_alive}, countdown_thread_id={countdown_id}")
+            
+            # Cancel all timers (this includes join() which will wait)
             self.current_timer_manager.cancel_all_timers()
+            
+            cleanup_cancel_done = time.time()
+            self.logger.info(f"[CLEANUP-CANCEL] {manager_id} cancel_all_timers() completed in {(cleanup_cancel_done - cleanup_start)*1000:.1f}ms")
+            
             self.current_timer_manager = None
+            self.logger.info(f"[CLEANUP-NULLED] current_timer_manager set to None")
+        else:
+            self.logger.info(f"[CLEANUP-SKIP] No current_timer_manager to clean up")
         
         # Clear any advancement flags
         self.timer_advance_requested = False
@@ -530,17 +561,27 @@ class SlideshowController:
         # Clear any paused timing state to ensure clean slate
         self.paused_remaining_time = None
         
-        self.logger.info(f"[TIMER-MGR] Previous slide cleanup complete - ready for new timer manager")
+        cleanup_end = time.time()
+        self.logger.info(f"[CLEANUP-COMPLETE] Cleanup finished in {(cleanup_end - cleanup_start)*1000:.1f}ms at {cleanup_end:.3f}")
     
     def _create_slide_timer_manager(self, slide: Dict[str, Any]) -> None:
         """Create timer manager for slide (always called regardless of pause state)."""
+        import threading
+        import time
+        create_start = time.time()
+        thread_id = threading.current_thread().ident
+        
+        self.logger.info(f"[CREATE-START] Thread-{thread_id} at {create_start:.3f}: Creating new timer manager")
+        
         # Create new timer manager for this slide (cleanup already done in _display_slide_with_timer)
         self.current_timer_manager = SlideTimerManager(self, self.logger)
+        manager_id = self.current_timer_manager.manager_id
         
         slide_timer = slide.get('slide_timer', 10)  # Default 10 seconds
         slide_type = slide.get('type', 'unknown')
         
-        self.logger.info(f"[TIMER-MGR] Created fresh timer manager for {slide_type} slide")
+        create_end = time.time()
+        self.logger.info(f"[CREATE-COMPLETE] Created {manager_id} for {slide_type} slide in {(create_end - create_start)*1000:.1f}ms at {create_end:.3f}")
         
         # Store slide info for potential timer start
         self._pending_slide_timer = slide_timer
@@ -616,52 +657,6 @@ class SlideshowController:
         else:
             self.logger.warning(f"[TIMER-MGR] Video not playing or no slide data")
     
-    def _stop_countdown_display_thread(self) -> None:
-        """Stop the current countdown display thread."""
-        if self.countdown_thread and self.countdown_thread.is_alive():
-            # Signal the thread to stop by clearing timer_start_time
-            old_thread_name = self.countdown_thread.name
-            self.timer_start_time = None
-            self.countdown_thread = None
-            self.logger.debug(f"[COUNTDOWN] Stopped countdown thread: {old_thread_name}")
-    
-    def _start_countdown_display_thread(self) -> None:
-        """Start a thread to display countdown for photo slides."""
-        # Stop any existing countdown thread first
-        self._stop_countdown_display_thread()
-        
-        def countdown_display_loop():
-            try:
-                while (self.is_running and self.is_playing and 
-                       hasattr(self, 'timer_start_time') and 
-                       self.timer_start_time is not None):
-                    current_time = time.time()
-                    elapsed = current_time - self.timer_start_time
-                    remaining = max(0, self.timer_duration - elapsed)
-                    remaining_int = int(remaining)
-                    
-                    if remaining <= 0:
-                        break
-                    
-                    # Update countdown display
-                    try:
-                        if hasattr(self.display_manager, 'show_countdown'):
-                            self.display_manager.show_countdown(remaining_int)
-                    except Exception as e:
-                        self.logger.error(f"Error updating countdown: {e}")
-                    
-                    time.sleep(1)  # Update every second
-            except Exception as e:
-                self.logger.error(f"Error in countdown display loop: {e}")
-            finally:
-                # Clear the countdown thread reference when done
-                if self.countdown_thread and self.countdown_thread == threading.current_thread():
-                    self.countdown_thread = None
-        
-        self.countdown_thread = threading.Thread(target=countdown_display_loop, daemon=True)
-        self.countdown_thread.start()
-        self.logger.debug(f"[COUNTDOWN] Started new countdown thread: {self.countdown_thread.name}")
-    
     def _schedule_advancement_on_main_thread(self) -> None:
         """Schedule slideshow advancement on the main thread to avoid macOS threading issues."""
         try:
@@ -690,10 +685,9 @@ class SlideshowController:
             self.current_photo_pair = photos
             self.logger.info(f"Displaying portrait pair: {photos[0].get('filename', 'Unknown')}, {photos[1].get('filename', 'Unknown')}")
             
-            # Generate slide ID
-            self.current_slide_id += 1
-            slide_id = self.current_slide_id
-            self.logger.info(f"[SLIDE-{slide_id}] Portrait pair assigned slide ID")
+            # Slide ID already assigned during slide creation
+            slide_id = slide.get('slide_id', 'UNKNOWN')
+            self.logger.info(f"[SLIDE-{slide_id}] Displaying portrait pair with slide ID")
             
             # Display the photo pair
             self.display_manager.display_photo(photos, location_string, slideshow_timer)
@@ -715,10 +709,9 @@ class SlideshowController:
             self.current_photo_pair = photo
             self.logger.info(f"Displaying single photo: {photo.get('filename', 'Unknown')}")
             
-            # Generate slide ID
-            self.current_slide_id += 1
-            slide_id = self.current_slide_id
-            self.logger.info(f"[SLIDE-{slide_id}] Single photo assigned slide ID")
+            # Slide ID already assigned during slide creation
+            slide_id = slide.get('slide_id', 'UNKNOWN')
+            self.logger.info(f"[SLIDE-{slide_id}] Displaying single photo with slide ID")
             
             # Display the photo
             self.display_manager.display_photo(photo, location_string, slideshow_timer)
@@ -742,10 +735,9 @@ class SlideshowController:
             self.current_photo_pair = video
             self.logger.info(f"Displaying video: {video.get('filename', 'Unknown')}")
             
-            # Generate slide ID
-            self.current_slide_id += 1
-            slide_id = self.current_slide_id
-            self.logger.info(f"[SLIDE-{slide_id}] Video assigned slide ID")
+            # Slide ID already assigned during slide creation
+            slide_id = slide.get('slide_id', 'UNKNOWN')
+            self.logger.info(f"[SLIDE-{slide_id}] Displaying video with slide ID")
             
             # Display the video using existing video display logic
             video_path = video.get('path')
@@ -1147,6 +1139,10 @@ class SlideshowController:
         """Create a slide from a photo, handling portrait pairing."""
         photo_count = self.photo_manager.get_photo_count()
         
+        # Generate slide ID
+        self.current_slide_id += 1
+        slide_id = self.current_slide_id
+        
         # Check if portrait pairing is enabled and this is a portrait photo
         if (self.config.get('portrait_pairing', True) and photo.get('orientation') == 'portrait'):
             second_photo, second_photo_index = self._find_pairing_partner(photo, photo_index)
@@ -1162,7 +1158,8 @@ class SlideshowController:
                     'photos': photo_pair,
                     'slide_timer': slideshow_timer,
                     'location_string': location_string,
-                    'photo_indices': [photo_index, second_photo_index]
+                    'photo_indices': [photo_index, second_photo_index],
+                    'slide_id': slide_id
                 }
                 
                 self.logger.info(f"Created portrait pair slide: {photo.get('filename', 'Unknown')}, {second_photo.get('filename', 'Unknown')} ({photo_index+1}, {second_photo_index+1} of {photo_count})")
@@ -1177,7 +1174,8 @@ class SlideshowController:
             'photos': [photo],
             'slide_timer': slideshow_timer,
             'location_string': location_string,
-            'photo_indices': [photo_index]
+            'photo_indices': [photo_index],
+            'slide_id': slide_id
         }
         
         self.logger.info(f"Created single photo slide: {photo.get('filename', 'Unknown')} ({photo_index+1} of {photo_count})")
@@ -1186,6 +1184,10 @@ class SlideshowController:
     def _create_slide_from_video(self, video: Dict[str, Any], video_index: int) -> Dict[str, Any]:
         """Create a slide from a video."""
         video_count = self.photo_manager.get_photo_count()
+        
+        # Generate slide ID
+        self.current_slide_id += 1
+        slide_id = self.current_slide_id
         
         # Calculate video duration and timer
         slideshow_timer = self._calculate_slideshow_timer([video])
@@ -1196,7 +1198,8 @@ class SlideshowController:
             'photos': [video],  # Keep consistent naming even for videos
             'slide_timer': slideshow_timer,
             'location_string': location_string,
-            'photo_indices': [video_index]
+            'photo_indices': [video_index],
+            'slide_id': slide_id
         }
         
         self.logger.info(f"Created video slide: {video.get('filename', 'Unknown')} ({video_index+1} of {video_count})")

@@ -36,6 +36,11 @@ class SlideTimerManager:
         self.start_time: Optional[float] = None
         self.duration: Optional[float] = None
         
+        # Generate unique ID for this timer manager instance
+        import random
+        self.manager_id = f"MGR-{random.randint(1000, 9999)}"
+        self.logger.info(f"[TIMER-{self.manager_id}] Timer manager instance created")
+        
     def start_slide_timing(self, duration: float, slide_type: str) -> None:
         """Start timing for a slide.
         
@@ -101,8 +106,14 @@ class SlideTimerManager:
             
         # Stop countdown thread
         if self.countdown_thread and self.countdown_thread.is_alive():
-            self.logger.info(f"[TIMER-MGR] Stopping countdown thread")
-            # The countdown thread will check is_active and stop itself
+            self.logger.info(f"[TIMER-MGR] Stopping countdown thread, waiting for it to finish...")
+            # Thread will check is_active and stop itself
+            # Wait up to 1.5 seconds for thread to finish (countdown updates every 1s)
+            self.countdown_thread.join(timeout=1.5)
+            if self.countdown_thread.is_alive():
+                self.logger.warning(f"[TIMER-MGR] Countdown thread did not stop in time (still alive after 1.5s)")
+            else:
+                self.logger.info(f"[TIMER-MGR] Countdown thread stopped successfully")
             self.countdown_thread = None
         
         # Clear timing info
@@ -167,6 +178,11 @@ class SlideTimerManager:
         
         # Stop countdown but don't clear timing info
         if self.countdown_thread and self.countdown_thread.is_alive():
+            self.logger.info(f"[TIMER-MGR] Pausing countdown thread, waiting for it to finish...")
+            # Wait for thread to notice is_active=False and stop
+            self.countdown_thread.join(timeout=1.5)
+            if self.countdown_thread.is_alive():
+                self.logger.warning(f"[TIMER-MGR] Countdown thread did not stop during pause")
             self.countdown_thread = None
         
         return remaining
@@ -213,25 +229,34 @@ class SlideTimerManager:
         """
         def countdown_worker():
             """Worker function for countdown display thread."""
+            thread_id = threading.current_thread().ident
+            self.logger.info(f"[TIMER-{self.manager_id}] Countdown worker started, thread_id={thread_id}")
             try:
+                iteration = 0
                 while self.is_active and duration_seconds > 0:
                     remaining = self.get_remaining_time()
+                    iteration += 1
+                    self.logger.info(f"[TIMER-{self.manager_id}] Countdown iteration {iteration}, remaining={remaining:.1f}s, is_active={self.is_active}, thread_id={thread_id}")
+                    
                     if remaining <= 0 or not self.is_active:
+                        self.logger.info(f"[TIMER-{self.manager_id}] Countdown worker exiting: remaining={remaining:.1f}s, is_active={self.is_active}")
                         break
                     
                     # Show countdown via display manager
                     if (hasattr(self.controller, 'display_manager') and 
                         hasattr(self.controller.display_manager, 'show_countdown')):
-                        self.controller.display_manager.show_countdown(int(remaining))
+                        self.controller.display_manager.show_countdown(int(remaining), self.manager_id)
                     
                     time.sleep(1.0)  # Update every second
                     
             except Exception as e:
-                self.logger.error(f"[TIMER-MGR] Error in countdown display: {e}")
+                self.logger.error(f"[TIMER-{self.manager_id}] Error in countdown display: {e}")
+            finally:
+                self.logger.info(f"[TIMER-{self.manager_id}] Countdown worker finished, thread_id={thread_id}")
         
         self.countdown_thread = threading.Thread(target=countdown_worker, daemon=True)
         self.countdown_thread.start()
-        self.logger.info(f"[TIMER-MGR] Started countdown display thread")
+        self.logger.info(f"[TIMER-{self.manager_id}] Started countdown display thread: {self.countdown_thread.name}, id={self.countdown_thread.ident}")
     
     def is_timer_active(self) -> bool:
         """Check if timer manager is currently active.
