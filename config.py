@@ -60,6 +60,7 @@ class SlideshowConfig:
 
         # Voice command settings
         'voice_commands_enabled': True,
+        'voice_provider': 'google', # Voice recognition provider ('google', 'mock')
         'voice_confidence_threshold': 0.3, # Minimum confidence for recognition
         'voice_command_timeout': 2.0, # Seconds to listen for a command
         'voice_keywords': {

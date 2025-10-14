@@ -69,6 +69,11 @@ class PygameDisplayManager:
         self._countdown_text = None
         self._countdown_rect = None
         
+        # Voice command overlay state
+        self._voice_command_text = None
+        self._voice_command_timer = None
+        self._voice_command_lock = threading.Lock()
+        
         self.logger.info(f"Pygame Display Manager initialized: {self.screen_width}x{self.screen_height}")
     
     def display_photo(self, photo_data, location_string: Optional[str] = None, slideshow_timer: Optional[int] = None) -> None:
@@ -942,6 +947,78 @@ class PygameDisplayManager:
         except Exception as e:
             self.logger.error(f"Error clearing stopped overlay: {e}")
     
+    def show_voice_command_overlay(self, command: str) -> None:
+        """Show voice command feedback overlay in top-right corner (photos only).
+        
+        Args:
+            command: The command to display (e.g., 'next', 'stop', 'resume')
+        """
+        try:
+            # Only show for photos (not videos to avoid threading issues)
+            if self.video_playing:
+                self.logger.debug(f"[VOICE-OVERLAY] Skipping overlay for video (command: {command})")
+                return
+            
+            with self._voice_command_lock:
+                # Cancel any existing timer
+                if self._voice_command_timer:
+                    self._voice_command_timer.cancel()
+                
+                # Store command text
+                self._voice_command_text = command.upper()
+                self.logger.info(f"[VOICE-OVERLAY] Showing command: {self._voice_command_text}")
+                
+                # Draw the overlay immediately
+                self._draw_voice_command_overlay()
+                pygame.display.flip()
+                
+                # Schedule auto-clear after 1.5 seconds
+                self._voice_command_timer = threading.Timer(1.5, self._clear_voice_command_overlay)
+                self._voice_command_timer.daemon = True
+                self._voice_command_timer.start()
+        
+        except Exception as e:
+            self.logger.error(f"Error showing voice command overlay: {e}")
+    
+    def _draw_voice_command_overlay(self) -> None:
+        """Draw voice command overlay in top-right corner (above countdown)."""
+        try:
+            if not self._voice_command_text:
+                return
+            
+            # Render command text (smaller font)
+            command_text = self.small_font.render(self._voice_command_text, True, self.WHITE)
+            
+            # Position in top-right corner ABOVE countdown timer
+            # Countdown is at y=50, so place this at y=10 with good separation
+            margin_right = 50  # Same right margin as countdown
+            margin_top = 10    # Higher than countdown
+            text_rect = command_text.get_rect()
+            text_rect.topright = (self.screen_width - margin_right, margin_top)
+            
+            # Draw background rectangle for better readability
+            bg_rect = text_rect.inflate(20, 10)
+            pygame.draw.rect(self.screen, (0, 100, 0, 200), bg_rect)  # Dark green background
+            pygame.draw.rect(self.screen, self.WHITE, bg_rect, 2)  # White border
+            
+            # Draw text
+            self.screen.blit(command_text, text_rect)
+            
+        except Exception as e:
+            self.logger.error(f"Error drawing voice command overlay: {e}")
+    
+    def _clear_voice_command_overlay(self) -> None:
+        """Clear voice command overlay (called by timer)."""
+        try:
+            with self._voice_command_lock:
+                if self._voice_command_text:
+                    self.logger.info(f"[VOICE-OVERLAY] Auto-clearing command: {self._voice_command_text}")
+                    self._voice_command_text = None
+                    # Note: Overlay will be cleared on next display update (countdown or video frame)
+        
+        except Exception as e:
+            self.logger.error(f"Error clearing voice command overlay: {e}")
+    
     def _redisplay_current_photo(self, slide: dict) -> None:
         """Re-display the current photo to clear overlays."""
         try:
@@ -1001,6 +1078,11 @@ class PygameDisplayManager:
             # Render countdown to screen buffer
             if self._countdown_text and self._countdown_rect:
                 self.screen.blit(self._countdown_text, self._countdown_rect)
+                
+                # Also render voice command overlay if active (thread-safe)
+                with self._voice_command_lock:
+                    if self._voice_command_text:
+                        self._draw_voice_command_overlay()
                 
                 # Only call flip() for photos (videos handle their own display updates)
                 video_state = getattr(self, 'video_playing', False)

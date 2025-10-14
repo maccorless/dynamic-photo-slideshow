@@ -84,11 +84,15 @@ class SlideTimerManager:
         if slide_type != 'video' and self.controller.config.get('show_countdown_timer', False):
             self._start_countdown_display(duration)
     
-    def cancel_all_timers(self) -> None:
-        """Cancel all timers and mark as inactive."""
+    def cancel_all_timers(self, wait_for_threads: bool = True) -> None:
+        """Cancel all timers and mark as inactive.
+        
+        Args:
+            wait_for_threads: If True, wait for threads to finish. If False (shutdown), don't wait.
+        """
         current_time = time.time()
         elapsed = current_time - self.start_time if self.start_time else 0
-        remaining = self.duration - elapsed if self.duration and self.start_time else 0
+        remaining = self.duration - elapsed if self.duration else 0
         
         self.logger.info(f"[TIMER-DEBUG] ===== CANCELING TIMERS ======")
         self.logger.info(f"[TIMER-DEBUG] Was active: {self.is_active}")
@@ -99,21 +103,25 @@ class SlideTimerManager:
         
         # Cancel advancement timer
         if self.advancement_timer:
+            self.advancement_timer.cancel()
             if self.advancement_timer.is_alive():
-                self.advancement_timer.cancel()
                 self.logger.info(f"[TIMER-MGR] Canceled advancement timer")
             self.advancement_timer = None
             
         # Stop countdown thread
         if self.countdown_thread and self.countdown_thread.is_alive():
-            self.logger.info(f"[TIMER-MGR] Stopping countdown thread, waiting for it to finish...")
-            # Thread will check is_active and stop itself
-            # Wait up to 1.5 seconds for thread to finish (countdown updates every 1s)
-            self.countdown_thread.join(timeout=1.5)
-            if self.countdown_thread.is_alive():
-                self.logger.warning(f"[TIMER-MGR] Countdown thread did not stop in time (still alive after 1.5s)")
+            if wait_for_threads:
+                self.logger.info(f"[TIMER-MGR] Stopping countdown thread, waiting for it to finish...")
+                # Thread will check is_active and stop itself
+                # Wait up to 1.5 seconds for thread to finish (countdown updates every 1s)
+                self.countdown_thread.join(timeout=1.5)
+                if self.countdown_thread.is_alive():
+                    self.logger.warning(f"[TIMER-MGR] Countdown thread did not stop in time (still alive after 1.5s)")
+                else:
+                    self.logger.info(f"[TIMER-MGR] Countdown thread stopped successfully")
             else:
-                self.logger.info(f"[TIMER-MGR] Countdown thread stopped successfully")
+                # On shutdown, don't wait - daemon thread will be cleaned up by Python
+                self.logger.info(f"[TIMER-MGR] Shutdown mode - not waiting for countdown thread (daemon will exit)")
             self.countdown_thread = None
         
         # Clear timing info

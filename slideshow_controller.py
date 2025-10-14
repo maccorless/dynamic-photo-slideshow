@@ -3,14 +3,16 @@ Slideshow controller for Dynamic Photo Slideshow.
 Handles timing, navigation, and coordination between components.
 """
 
+import json
 import logging
 import os
-import random
+import sys
 import time
+import random
 import threading
-import subprocess
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timezone
+from queue import Queue
+from typing import Dict, Any, Optional, Tuple, List
+from datetime import datetime
 from enum import Enum
 from slideshow_exceptions import DisplayError, NavigationError, SlideshowError
 from slide_timer_manager import SlideTimerManager
@@ -46,7 +48,22 @@ class SlideshowController:
         self.logger = logging.getLogger(__name__)
         
         # Initialize voice command service
-        self.voice_service = VoiceCommandService(self, config)
+        try:
+            self.logger.info("[VOICE-INIT] Creating VoiceCommandService...")
+            self.voice_service = VoiceCommandService(self, config)
+            self.logger.info(f"[VOICE-INIT] VoiceCommandService created successfully, is_enabled={self.voice_service.is_enabled}")
+        except Exception as e:
+            self.logger.error(f"[VOICE-INIT] Failed to create VoiceCommandService: {e}")
+            import traceback
+            traceback.print_exc()
+            # Create a dummy service that's always unavailable
+            class DummyVoiceService:
+                is_enabled = False
+                is_listening = False
+                def is_available(self): return False
+                def start_listening(self): return False
+                def stop_listening_service(self): pass
+            self.voice_service = DummyVoiceService()
         
         # Set controller reference in display manager for overlay state checking
         self.display_manager.set_controller_reference(self)
@@ -82,6 +99,9 @@ class SlideshowController:
         
         # Timer advancement flag for main thread processing (macOS compatibility)
         self.timer_advance_requested = False
+        
+        # Voice command queue for thread-safe main thread processing (macOS/pygame compatibility)
+        self.voice_command_queue = Queue()  # Thread-safe FIFO queue for voice commands
         
         # Pause state tracking
         self.pause_start_time = None  # Track when pause started
@@ -296,11 +316,20 @@ class SlideshowController:
             self.last_cache_check = time.time()
             
             # Start voice command service if available
+            self.logger.info(f"[VOICE-DEBUG] Checking voice service availability...")
+            self.logger.info(f"[VOICE-DEBUG] voice_service exists: {hasattr(self, 'voice_service')}")
+            if hasattr(self, 'voice_service'):
+                self.logger.info(f"[VOICE-DEBUG] voice_service.is_enabled: {self.voice_service.is_enabled}")
+                self.logger.info(f"[VOICE-DEBUG] voice_service.is_available(): {self.voice_service.is_available()}")
+            
             if self.voice_service.is_available():
+                self.logger.info(f"[VOICE-DEBUG] Attempting to start listening...")
                 if self.voice_service.start_listening():
                     self.logger.info("Voice commands enabled: say 'next', 'back', 'stop', or 'go'")
                 else:
                     self.logger.warning("Voice commands failed to start")
+            else:
+                self.logger.warning("[VOICE-DEBUG] Voice service not available!")
             
             # Display first slide using single entry point
             self.advance_slideshow(TriggerType.STARTUP, Direction.NEXT)
@@ -318,14 +347,14 @@ class SlideshowController:
         self.is_running = False
         self.is_playing = False
         
-        # Stop timers using new timer manager
-        if self.current_timer_manager:
-            self.current_timer_manager.cancel_all_timers()
-            self.current_timer_manager = None
-        
-        # Stop voice commands
+        # Stop voice commands FIRST to prevent new callbacks
         if hasattr(self, 'voice_service') and self.voice_service:
             self.voice_service.stop_listening_service()
+        
+        # Stop timers using new timer manager (fast shutdown - don't wait for threads)
+        if self.current_timer_manager:
+            self.current_timer_manager.cancel_all_timers(wait_for_threads=False)
+            self.current_timer_manager = None
         
         # Stop display manager
         if hasattr(self.display_manager, 'stop'):
@@ -1448,19 +1477,47 @@ class SlideshowController:
     
     def voice_next(self) -> None:
         """Public API for voice next command."""
-        self.advance_slideshow(TriggerType.VOICE_NEXT, Direction.NEXT)
+        # Add to queue for thread-safe main thread processing (pygame/macOS compatibility)
+        self.voice_command_queue.put('next')
+        self.logger.debug("[VOICE] Added 'next' to voice command queue")
     
     def voice_previous(self) -> None:
         """Public API for voice previous command."""
-        self.advance_slideshow(TriggerType.VOICE_PREVIOUS, Direction.PREVIOUS)
+        # Add to queue for thread-safe main thread processing (pygame/macOS compatibility)
+        self.voice_command_queue.put('back')
+        self.logger.debug("[VOICE] Added 'back' to voice command queue")
     
-    # REMOVED: pause_for_voice_command - replaced by SlideTimerManager
+    def pause_for_voice_command(self) -> None:
+        """Pause the timer temporarily for voice command processing."""
+        # Store the remaining time and the timer manager ID to avoid race condition
+        if self.current_timer_manager and self.current_timer_manager.is_active:
+            remaining_time = self.current_timer_manager.pause_timing()
+            self.paused_remaining_time = remaining_time
+            self.paused_timer_manager_id = id(self.current_timer_manager)
+            self.logger.debug(f"[VOICE] Paused timer, saved {remaining_time:.1f}s remaining")
 
     def resume_after_voice_command(self) -> None:
         """Resume the timer after voice command processing if slideshow is playing."""
-        if self.is_playing:
-            # Use new timer manager for resume
-            self._resume_timer_new()
+        # Only resume if:
+        # 1. We actually paused a timer
+        # 2. Slideshow is still playing
+        # 3. We're still on the SAME slide (timer manager hasn't changed)
+        # If navigation happened (next/back), a NEW timer was already created, don't resume old one
+        if (self.is_playing and 
+            self.paused_remaining_time is not None and
+            self.current_timer_manager and
+            id(self.current_timer_manager) == getattr(self, 'paused_timer_manager_id', None)):
+            # Still on same slide, resume the timer with saved remaining time
+            slide_type = self.current_slide.get('type', 'unknown') if self.current_slide else 'unknown'
+            self.current_timer_manager.resume_timing(self.paused_remaining_time, slide_type)
+            self.logger.debug(f"[VOICE] Resumed timer with {self.paused_remaining_time:.1f}s remaining")
+        else:
+            if self.paused_remaining_time is not None:
+                self.logger.debug(f"[VOICE] Skipping resume - slide changed or no longer playing")
+        
+        # Clear saved state
+        self.paused_remaining_time = None
+        self.paused_timer_manager_id = None
 
     def toggle_pause(self) -> None:
         """Public method for voice commands to toggle pause/resume."""

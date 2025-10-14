@@ -101,6 +101,26 @@ class PygameSlideshowController:
                 except Exception as e:
                     self.logger.error(f"[PYGAME-MAIN] Error in timer advancement: {e}")
             
+            # Check for voice-triggered commands (macOS/pygame thread safety)
+            # Process all pending voice commands from queue
+            if hasattr(self.controller, 'voice_command_queue'):
+                while not self.controller.voice_command_queue.empty():
+                    try:
+                        command = self.controller.voice_command_queue.get_nowait()
+                        self.logger.debug(f"[PYGAME-MAIN] Processing voice command '{command}' on main thread")
+                        
+                        if command == 'next':
+                            self.controller.advance_slideshow(TriggerType.VOICE_NEXT, Direction.NEXT)
+                        elif command == 'back':
+                            self.controller.advance_slideshow(TriggerType.VOICE_PREVIOUS, Direction.PREVIOUS)
+                        elif command == 'pause' or command == 'resume':
+                            self.controller.toggle_pause()
+                        
+                        self.controller.voice_command_queue.task_done()
+                    except Exception as e:
+                        self.logger.error(f"[PYGAME-MAIN] Error processing voice command: {e}")
+                        break  # Stop processing on error
+            
             # Maintain reasonable frame rate
             clock.tick(30)  # Reduce to 30 FPS to prevent excessive CPU usage
         
