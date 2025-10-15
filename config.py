@@ -27,7 +27,7 @@ class SlideshowConfig:
         "min_people_count": 1,
         "max_photos_limit": 500,
         "shuffle_photos": True,
-        "slideshow_interval": 10,
+        "SLIDESHOW_INTERVAL": 10,
         "portrait_pairing": True,
         "MONITOR_RESOLUTION": "auto",
         "OVERLAY_PLACEMENT": "TOP",
@@ -47,8 +47,8 @@ class SlideshowConfig:
         "LOGGING_VERBOSE": False,
         # Video playback settings for v3.0
         'video_playback_enabled': True,
-        'video_max_duration': 15, # seconds - maximum video length to play
-        'video_audio_enabled': True, # Enable audio playback for videos
+        'VIDEO_MAX_DURATION': 15, # seconds - maximum video length to play
+        'VIDEO_AUDIO_ENABLED': True, # Enable audio playback for videos
         'video_auto_play': True, # Automatically play videos in slideshow
         'video_loop': False, # Loop videos if shorter than slideshow interval
         'video_thumbnail_enabled': True, # Generate thumbnails for videos
@@ -63,13 +63,18 @@ class SlideshowConfig:
         'voice_provider': 'google', # Voice recognition provider ('google', 'mock')
         'voice_confidence_threshold': 0.3, # Minimum confidence for recognition
         'voice_command_timeout': 2.0, # Seconds to listen for a command
+        'voice_command_variants_path': 'voice_command_variants.json', # Path to voice command variants file
+        'custom_voice_variants': {}, # Custom voice command variants (overrides defaults)
         'voice_keywords': {
             "next": ["next", "forward", "advance", "right"],
             "back": ["back", "previous", "backward", "left"],
             "pause": ["stop", "pause", "halt"],
             "resume": ["blueberry", "start", "resume", "play", "continue"]
         },
-        "show_countdown_timer": True
+        "show_countdown_timer": True,
+        
+        # Test/Debug settings
+        'video_test_mode': False  # If True, only shows videos in rotation for testing
     }
     
     # Valid values for validation
@@ -125,7 +130,7 @@ class SlideshowConfig:
     
     def _validate_config_value(self, key: str, value: Any) -> bool:
         """Validate a configuration value."""
-        if key == "slideshow_interval":
+        if key == "SLIDESHOW_INTERVAL":
             return isinstance(value, int) and 1 <= value <= 86400
         elif key == "CACHE_SIZE_LIMIT_GB":
             return isinstance(value, int) and 1 <= value <= 100
@@ -145,7 +150,7 @@ class SlideshowConfig:
             return isinstance(value, bool)
         elif key == "album_name":
             return isinstance(value, str)
-        elif key in ["max_photos_limit", "min_people_count", "slideshow_interval", 
+        elif key in ["max_photos_limit", "min_people_count", "SLIDESHOW_INTERVAL", 
                      "CACHE_SIZE_LIMIT_GB", "max_recent_photos", "fallback_photo_limit",
                      "min_fallback_photos", "progress_log_interval", "download_batch_size",
                      "cache_refresh_check_interval"]:

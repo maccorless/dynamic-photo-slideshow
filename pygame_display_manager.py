@@ -74,6 +74,13 @@ class PygameDisplayManager:
         self._voice_command_timer = None
         self._voice_command_lock = threading.Lock()
         
+        # Surface rendering lock for thread safety
+        self._surface_lock = threading.Lock()
+        
+        # Test mode for simulating video failures
+        self._test_video_failure_mode = False
+        self._test_failure_type = None  # 'load', 'codec', 'playback'
+        
         self.logger.info(f"Pygame Display Manager initialized: {self.screen_width}x{self.screen_height}")
     
     def display_photo(self, photo_data, location_string: Optional[str] = None, slideshow_timer: Optional[int] = None) -> None:
@@ -277,6 +284,95 @@ class PygameDisplayManager:
             self.logger.error(f"Error displaying paired photos: {e}")
             self._display_error_message("Cannot load paired images")
     
+    def _display_video_error_message(self, message: str, duration_seconds: int = None) -> None:
+        """Display video-specific error message on screen with countdown timer.
+        
+        Args:
+            message: Error message to display
+            duration_seconds: Duration to show error (defaults to slideshow interval from config)
+        """
+        try:
+            # Use slideshow interval from config if duration not specified
+            if duration_seconds is None:
+                duration_seconds = self.config.get('SLIDESHOW_INTERVAL_SECONDS', 10)
+            
+            # Ensure screen is valid
+            if not self.screen or not pygame.display.get_surface():
+                self.logger.error(f"[VIDEO-ERROR-DISPLAY] Cannot show error - screen not initialized")
+                return
+            
+            self.logger.info(f"[VIDEO-ERROR-DISPLAY] Showing error with {duration_seconds}s countdown: {message}")
+            
+            start_time = time.time()
+            last_countdown = -1
+            
+            # Display loop with countdown
+            while True:
+                elapsed = time.time() - start_time
+                remaining = int(duration_seconds - elapsed)
+                
+                # Check if time expired
+                if remaining <= 0:
+                    self.logger.info(f"[VIDEO-ERROR-DISPLAY] Countdown complete - triggering auto-advance")
+                    # Trigger next slide via controller
+                    if hasattr(self, 'controller') and self.controller:
+                        self.logger.info(f"[VIDEO-ERROR-DISPLAY] Calling controller.next_photo()")
+                        self.controller.next_photo()
+                    break
+                
+                # Only redraw when countdown changes
+                if remaining != last_countdown:
+                    with self._surface_lock:
+                        self.screen.fill(self.BLACK)
+                        
+                        # Main error message
+                        error_text = self.font.render("⚠ VIDEO ERROR", True, (255, 100, 100))  # Red color
+                        error_rect = error_text.get_rect(center=(self.screen_width // 2, self.screen_height // 2 - 50))
+                        
+                        # Detail message
+                        detail_text = self.small_font.render(message, True, self.WHITE)
+                        detail_rect = detail_text.get_rect(center=(self.screen_width // 2, self.screen_height // 2 + 10))
+                        
+                        # Skip instruction with auto-advance info
+                        skip_msg = f"Press RIGHT ARROW to skip or auto-advancing in {remaining}s"
+                        skip_text = self.small_font.render(skip_msg, True, (200, 200, 200))
+                        skip_rect = skip_text.get_rect(center=(self.screen_width // 2, self.screen_height // 2 + 60))
+                        
+                        # Countdown timer (top-right corner, same as photo countdown)
+                        countdown_text = self.font.render(f"{remaining}s", True, self.WHITE)
+                        countdown_rect = countdown_text.get_rect(topright=(self.screen_width - 50, 50))
+                        
+                        # Draw messages
+                        self.screen.blit(error_text, error_rect)
+                        self.screen.blit(detail_text, detail_rect)
+                        self.screen.blit(skip_text, skip_rect)
+                        self.screen.blit(countdown_text, countdown_rect)
+                        
+                        pygame.display.flip()
+                        last_countdown = remaining
+                        self.logger.debug(f"[VIDEO-ERROR-DISPLAY] Countdown: {remaining}s")
+                
+                # Check for user input to skip
+                for event in pygame.event.get():
+                    if event.type == pygame.KEYDOWN:
+                        if event.key in [pygame.K_RIGHT, pygame.K_n, pygame.K_ESCAPE]:
+                            self.logger.info(f"[VIDEO-ERROR-DISPLAY] User skipped error message")
+                            # Trigger next slide
+                            if hasattr(self, 'controller') and self.controller:
+                                self.controller.next_photo()
+                            return  # User skipped
+                    elif event.type == pygame.QUIT:
+                        self.logger.info(f"[VIDEO-ERROR-DISPLAY] Quit event received")
+                        return
+                
+                # Small delay to prevent busy loop
+                pygame.time.wait(100)
+                    
+        except Exception as e:
+            self.logger.error(f"[VIDEO-ERROR-DISPLAY] Failed to display error message: {e}")
+            import traceback
+            self.logger.error(f"[VIDEO-ERROR-DISPLAY] Traceback: {traceback.format_exc()}")
+    
     def play_video(self, video_path: str, max_duration: int = 15, completion_callback=None, overlays: List[Dict[str, Any]] = None, video_metadata: Dict[str, Any] = None) -> bool:
         """Play video using pyvidplayer2 with overlay support."""
         try:
@@ -298,9 +394,39 @@ class PygameDisplayManager:
                 self.current_video = None
             self.video_playing = False
             
-            # Load video
-            video = Video(video_path)
-            video.set_volume(self.config.get('VIDEO_AUDIO_ENABLED', True))
+            # TEST MODE: Simulate video loading failure if enabled
+            if self._test_video_failure_mode and self._test_failure_type == 'load':
+                self.logger.warning(f"[VIDEO-TEST-MODE] Simulating video load failure")
+                raise FileNotFoundError(f"Test mode: Simulated video load failure")
+            elif self._test_video_failure_mode and self._test_failure_type == 'codec':
+                self.logger.warning(f"[VIDEO-TEST-MODE] Simulating codec error")
+                raise ValueError(f"Test mode: Unsupported video codec")
+            
+            # Load video with detailed error handling
+            try:
+                video = Video(video_path)
+                self.logger.info(f"[VIDEO-LOAD] Successfully loaded video: {os.path.basename(video_path)}")
+                video.set_volume(self.config.get('VIDEO_AUDIO_ENABLED', True))
+            except FileNotFoundError:
+                self.logger.error(f"[VIDEO-LOAD-ERROR] Video file not found: {video_path}")
+                self._display_video_error_message(f"Video not found: {os.path.basename(video_path)}")
+                return False
+            except Exception as e:
+                # Log detailed error information
+                self.logger.error(f"[VIDEO-LOAD-ERROR] Failed to load video: {os.path.basename(video_path)}")
+                self.logger.error(f"[VIDEO-LOAD-ERROR] Video path: {video_path}")
+                self.logger.error(f"[VIDEO-LOAD-ERROR] Error type: {type(e).__name__}")
+                self.logger.error(f"[VIDEO-LOAD-ERROR] Error message: {str(e)}")
+                
+                # Show visual error to user
+                error_msg = f"Cannot play video: {os.path.basename(video_path)}"
+                if "codec" in str(e).lower():
+                    error_msg += " (unsupported codec)"
+                elif "format" in str(e).lower():
+                    error_msg += " (unsupported format)"
+                
+                self._display_video_error_message(error_msg)
+                return False
             
             # Store video metadata for overlay positioning
             if video_metadata:
@@ -485,9 +611,27 @@ class PygameDisplayManager:
             return True
             
         except Exception as e:
-            self.logger.error(f"Error playing video: {e}")
+            self.logger.error(f"[VIDEO-PLAYBACK-ERROR] Error during video playback")
+            self.logger.error(f"[VIDEO-PLAYBACK-ERROR] Video: {os.path.basename(video_path)}")
+            self.logger.error(f"[VIDEO-PLAYBACK-ERROR] Error: {str(e)}")
+            import traceback
+            self.logger.error(f"[VIDEO-PLAYBACK-ERROR] Traceback: {traceback.format_exc()}")
+            
+            # Clean up state properly
             self.video_playing = False
+            if self.current_video:
+                try:
+                    self.current_video.close()
+                except:
+                    pass
             self.current_video = None
+            
+            # Reset countdown state to prevent surface errors
+            self._reset_countdown_state()
+            
+            # Show error message
+            self._display_video_error_message(f"Video playback failed: {os.path.basename(video_path)}")
+            
             return False
     
     def _resize_video_for_screen(self, video):
@@ -822,7 +966,7 @@ class PygameDisplayManager:
     def display_video(self, video_path: str, overlays: List[Dict[str, Any]] = None, max_duration: int = None, completion_callback=None, video_metadata: Dict[str, Any] = None) -> bool:
         """Display video with overlays (compatibility method)."""
         if max_duration is None:
-            max_duration = self.config.get('video_max_duration', 15)
+            max_duration = self.config.get('VIDEO_MAX_DURATION', 15)
         return self.play_video(video_path, max_duration, completion_callback, overlays, video_metadata)
     
     def pause_video(self) -> None:
@@ -1048,9 +1192,14 @@ class PygameDisplayManager:
             self.logger.error(f"Traceback: {traceback.format_exc()}")
     
     def show_countdown(self, remaining_seconds: int, manager_id: str = "UNKNOWN") -> None:
-        """Show countdown timer overlay in top-right corner."""
+        """Show countdown timer overlay in top-right corner (thread-safe)."""
         try:
             if not self.config.get('show_countdown_timer', False):
+                return
+            
+            # Validate pygame screen is initialized
+            if not self.screen or not pygame.display.get_surface():
+                self.logger.warning(f"[COUNTDOWN-DISPLAY] Screen not initialized, skipping countdown")
                 return
             
             # Add detailed debugging for countdown display calls
@@ -1062,52 +1211,78 @@ class PygameDisplayManager:
                 self.logger.info(f"[COUNTDOWN-DISPLAY] {manager_id} Thread-{thread_id}: Skipping display - remaining_seconds <= 0")
                 return
             
-            # Only update countdown text when value changes to prevent flicker
-            if remaining_seconds != self._last_countdown:
-                # Clear the previous countdown area if it exists
-                if self._countdown_rect:
-                    # Create a slightly larger rectangle to ensure complete clearing
-                    clear_rect = self._countdown_rect.inflate(10, 10)
-                    pygame.draw.rect(self.screen, self.BLACK, clear_rect)
+            # Use thread lock to prevent concurrent surface operations
+            with self._surface_lock:
+                # Validate surface again inside lock
+                if not self.screen or not pygame.display.get_surface():
+                    self.logger.warning(f"[COUNTDOWN-DISPLAY] Screen lost during lock acquisition")
+                    return
                 
-                countdown_text = f"{remaining_seconds}s"
-                self._countdown_text = self.font.render(countdown_text, True, self.WHITE)
-                self._countdown_rect = self._countdown_text.get_rect(topright=(self.screen_width - 50, 50))
-                self._last_countdown = remaining_seconds
-            
-            # Render countdown to screen buffer
-            if self._countdown_text and self._countdown_rect:
-                self.screen.blit(self._countdown_text, self._countdown_rect)
+                # Only update countdown text when value changes to prevent flicker
+                if remaining_seconds != self._last_countdown:
+                    # Clear the previous countdown area if it exists
+                    if self._countdown_rect:
+                        try:
+                            # Create a slightly larger rectangle to ensure complete clearing
+                            clear_rect = self._countdown_rect.inflate(10, 10)
+                            pygame.draw.rect(self.screen, self.BLACK, clear_rect)
+                        except pygame.error as e:
+                            self.logger.warning(f"[COUNTDOWN-DISPLAY] Error clearing countdown rect: {e}")
+                            self._countdown_rect = None
+                    
+                    countdown_text = f"{remaining_seconds}s"
+                    try:
+                        self._countdown_text = self.font.render(countdown_text, True, self.WHITE)
+                        self._countdown_rect = self._countdown_text.get_rect(topright=(self.screen_width - 50, 50))
+                        self._last_countdown = remaining_seconds
+                    except pygame.error as e:
+                        self.logger.error(f"[COUNTDOWN-DISPLAY] Error rendering countdown text: {e}")
+                        self._reset_countdown_state()
+                        return
                 
-                # Also render voice command overlay if active (thread-safe)
-                with self._voice_command_lock:
-                    if self._voice_command_text:
-                        self._draw_voice_command_overlay()
-                
-                # Only call flip() for photos (videos handle their own display updates)
-                video_state = getattr(self, 'video_playing', False)
-                self.logger.info(f"[COUNTDOWN-DEBUG] video_playing state: {video_state}, calling flip: {not video_state}")
-                if not video_state:
-                    pygame.display.flip()
+                # Render countdown to screen buffer
+                if self._countdown_text and self._countdown_rect:
+                    try:
+                        self.screen.blit(self._countdown_text, self._countdown_rect)
+                        
+                        # Also render voice command overlay if active (thread-safe)
+                        with self._voice_command_lock:
+                            if self._voice_command_text:
+                                self._draw_voice_command_overlay()
+                        
+                        # Only call flip() for photos (videos handle their own display updates)
+                        video_state = getattr(self, 'video_playing', False)
+                        self.logger.info(f"[COUNTDOWN-DEBUG] video_playing state: {video_state}, calling flip: {not video_state}")
+                        if not video_state:
+                            pygame.display.flip()
+                    except pygame.error as e:
+                        self.logger.error(f"[COUNTDOWN-DISPLAY] Error blitting countdown: {e}")
+                        self._reset_countdown_state()
                 
         except Exception as e:
-            self.logger.error(f"Error showing countdown: {e}")
+            self.logger.error(f"[COUNTDOWN-DISPLAY] Unexpected error showing countdown: {e}")
+            import traceback
+            self.logger.error(f"[COUNTDOWN-DISPLAY] Traceback: {traceback.format_exc()}")
     
     def clear_countdown_timer(self) -> None:
-        """Clear countdown timer overlay and reset state."""
+        """Clear countdown timer overlay and reset state (thread-safe)."""
         import threading
         thread_id = threading.current_thread().ident
         self.logger.info(f"[COUNTDOWN-CLEAR] Thread-{thread_id}: Clearing countdown state - last_countdown: {self._last_countdown}")
         
-        # Clear the countdown area if it exists
-        if self._countdown_rect:
-            clear_rect = self._countdown_rect.inflate(10, 10)
-            pygame.draw.rect(self.screen, self.BLACK, clear_rect)
-            pygame.display.flip()
-        
-        self._last_countdown = None
-        self._countdown_text = None
-        self._countdown_rect = None
+        with self._surface_lock:
+            # Clear the countdown area if it exists
+            if self._countdown_rect and self.screen and pygame.display.get_surface():
+                try:
+                    clear_rect = self._countdown_rect.inflate(10, 10)
+                    pygame.draw.rect(self.screen, self.BLACK, clear_rect)
+                    pygame.display.flip()
+                except pygame.error as e:
+                    self.logger.warning(f"[COUNTDOWN-CLEAR] Error clearing countdown: {e}")
+            
+            self._last_countdown = None
+            self._countdown_text = None
+            self._countdown_rect = None
     
     def _reset_countdown_state(self) -> None:
         """Reset countdown state when starting a new slide."""
@@ -1210,3 +1385,35 @@ class PygameDisplayManager:
             return initial_font_size
     
     # REMOVED: show_filename_overlay method (per requirements - no filename/hotkey overlays)
+    
+    # ========== TEST HELPER METHODS ==========
+    
+    def enable_video_failure_test_mode(self, failure_type: str = 'load') -> None:
+        """Enable test mode to simulate video failures.
+        
+        Args:
+            failure_type: Type of failure to simulate: 'load', 'codec', or 'playback'
+        """
+        valid_types = ['load', 'codec', 'playback']
+        if failure_type not in valid_types:
+            self.logger.error(f"[TEST-MODE] Invalid failure type: {failure_type}. Must be one of {valid_types}")
+            return
+        
+        self._test_video_failure_mode = True
+        self._test_failure_type = failure_type
+        self.logger.warning(f"[TEST-MODE] Video failure test mode ENABLED - simulating '{failure_type}' errors")
+        self.logger.warning(f"[TEST-MODE] Next video playback will fail with simulated {failure_type} error")
+    
+    def disable_video_failure_test_mode(self) -> None:
+        """Disable test mode and return to normal video playback."""
+        self._test_video_failure_mode = False
+        self._test_failure_type = None
+        self.logger.info(f"[TEST-MODE] Video failure test mode DISABLED - normal playback resumed")
+    
+    def is_test_mode_enabled(self) -> bool:
+        """Check if test mode is currently enabled."""
+        return self._test_video_failure_mode
+    
+    def get_test_failure_type(self) -> str:
+        """Get the current test failure type."""
+        return self._test_failure_type if self._test_video_failure_mode else None

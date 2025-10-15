@@ -134,6 +134,27 @@ class PygameSlideshowController:
             def __init__(self, keysym):
                 self.keysym = keysym
         
+        # Handle test mode keyboard shortcuts (Shift+T, Shift+C, Shift+D)
+        mods = pygame.key.get_mods()
+        shift_pressed = mods & pygame.KMOD_SHIFT
+        
+        if shift_pressed:
+            if pygame_event.key == pygame.K_t:
+                # Shift+T: Enable video load failure test mode
+                self.display_manager.enable_video_failure_test_mode('load')
+                self.logger.warning("[TEST-MODE] Video LOAD failure test enabled - next video will fail")
+                return
+            elif pygame_event.key == pygame.K_c:
+                # Shift+C: Enable video codec failure test mode
+                self.display_manager.enable_video_failure_test_mode('codec')
+                self.logger.warning("[TEST-MODE] Video CODEC failure test enabled - next video will fail")
+                return
+            elif pygame_event.key == pygame.K_d:
+                # Shift+D: Disable test mode
+                self.display_manager.disable_video_failure_test_mode()
+                self.logger.info("[TEST-MODE] Video failure test mode DISABLED - normal playback")
+                return
+        
         # Map pygame keys to normalized key identifiers
         key_mapping = {
             pygame.K_SPACE: 'space',
@@ -162,6 +183,13 @@ class PygameSlideshowController:
     
     def start_slideshow(self):
         """Start the slideshow using pygame."""
+        # Log test mode keyboard shortcuts
+        self.logger.info("="*80)
+        self.logger.info("VIDEO ERROR TESTING SHORTCUTS:")
+        self.logger.info("  Shift+T = Enable video LOAD failure test (simulates missing file)")
+        self.logger.info("  Shift+C = Enable video CODEC failure test (simulates bad codec)")
+        self.logger.info("  Shift+D = Disable test mode (return to normal playback)")
+        self.logger.info("="*80)
         return self.controller.start_slideshow()
 
 
