@@ -65,6 +65,7 @@ filtering_debug.json
 *.tmp
 temp/
 cache/
+trash/
 
 # Sensitive data
 *.key
