@@ -8,6 +8,7 @@ import sys
 import logging
 import pygame
 import os
+import time
 from pathlib import Path
 
 from config import SlideshowConfig
@@ -47,11 +48,42 @@ class PygameSlideshowController:
         
         # Removed: Key state tracking for filename displays (per requirements)
         
+        # Scroll wheel debouncing - prevent rapid-fire events
+        self.last_scroll_time = 0
+        self.scroll_debounce_ms = 500  # Minimum 500ms between scroll events
+        
+        # Input blocking during state transitions to prevent GPU crashes
+        self.input_blocked = False
+        self.input_block_reason = None
+        
         # Set up controller reference for video navigation
         self.display_manager.set_controller_reference(self.controller)
         
+        # Give controller access to input blocking
+        self.controller.block_input = self.block_input
+        self.controller.unblock_input = self.unblock_input
+        
         # Set up pygame event loop
         self.controller.display_manager.start_event_loop = self._pygame_event_loop
+    
+    def block_input(self, reason: str) -> None:
+        """Block all input during state transitions."""
+        self.input_blocked = True
+        self.input_block_reason = reason
+        self.logger.info(f"[INPUT-BLOCK] Input blocked: {reason}")
+    
+    def unblock_input(self) -> None:
+        """Unblock input after state transition completes."""
+        if self.input_blocked:
+            self.logger.info(f"[INPUT-UNBLOCK] Input unblocked (was: {self.input_block_reason})")
+        
+        # Add 50ms delay to ensure countdown thread's first flip() completes
+        # This prevents race condition where input is processed in same millisecond as unblock
+        time.sleep(0.05)  # 50ms delay
+        
+        self.input_blocked = False
+        self.input_block_reason = None
+        self.logger.debug(f"[INPUT-UNBLOCK] Input ready after 50ms safety delay")
     
     def _pygame_event_loop(self, key_callback):
         """Pygame-based event loop for slideshow control."""
@@ -72,6 +104,10 @@ class PygameSlideshowController:
                     self.controller.stop()
                     break
                 elif event.type == pygame.KEYDOWN:
+                    # Check if input is blocked
+                    if self.input_blocked:
+                        self.logger.debug(f"[INPUT-BLOCK] Keyboard event ignored: {self.input_block_reason}")
+                        continue
                     # Handle ESC key for immediate exit
                     if event.key == pygame.K_ESCAPE:
                         self.logger.info("ESC key pressed - initiating immediate shutdown")
@@ -91,6 +127,29 @@ class PygameSlideshowController:
                         # Convert pygame key events to normalized format
                         self._handle_pygame_key(event, key_callback)
                 # Removed: KEYUP event handling for Shift key (per requirements)
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    # Check if input is blocked
+                    if self.input_blocked:
+                        self.logger.debug(f"[INPUT-BLOCK] Mouse event ignored: {self.input_block_reason}")
+                        continue
+                    
+                    # Handle mouse button clicks and scroll wheel
+                    if event.button == 1:  # Left click
+                        self.logger.info("Left mouse click - going to previous slide")
+                        self.controller.advance_slideshow(TriggerType.MOUSE, Direction.PREVIOUS)
+                    elif event.button == 3:  # Right click
+                        self.logger.info("Right mouse click - going to next slide")
+                        self.controller.advance_slideshow(TriggerType.MOUSE, Direction.NEXT)
+                    elif event.button == 4 or event.button == 5:  # Scroll wheel UP or DOWN
+                        # Debounce scroll wheel to prevent rapid-fire events
+                        current_time = pygame.time.get_ticks()
+                        if current_time - self.last_scroll_time >= self.scroll_debounce_ms:
+                            self.last_scroll_time = current_time
+                            direction = "UP" if event.button == 4 else "DOWN"
+                            self.logger.info(f"Scroll wheel {direction} - toggling pause")
+                            self.controller.toggle_pause()
+                        else:
+                            self.logger.debug(f"Scroll wheel event ignored (debounced, {current_time - self.last_scroll_time}ms since last)")
             
             # Check for timer-triggered advancement (macOS thread safety)
             if hasattr(self.controller, 'timer_advance_requested') and self.controller.timer_advance_requested:

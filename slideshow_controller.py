@@ -24,6 +24,7 @@ class TriggerType(Enum):
     KEY_PREVIOUS = "key_previous"
     VOICE_NEXT = "voice_next"
     VOICE_PREVIOUS = "voice_previous"
+    MOUSE = "mouse"
     STARTUP = "startup"
 
 class Direction(Enum):
@@ -119,6 +120,10 @@ class SlideshowController:
         if not self.is_running:
             return False
         
+        # Block input during slide transition to prevent rapid navigation
+        if hasattr(self, 'block_input'):
+            self.block_input(f"slide navigation ({trigger.value}, {direction.value})")
+        
         current_time = time.time()
         self.logger.info(f"[ADVANCE-DEBUG] ===== SLIDESHOW ADVANCEMENT ======")
         self.logger.info(f"[ADVANCE-DEBUG] Trigger: {trigger.value}")
@@ -162,6 +167,10 @@ class SlideshowController:
             self.logger.info(f"[ADVANCE] Successfully advanced to {slide['type']} slide")
         else:
             self.logger.error("[ADVANCE] Failed to display slide")
+        
+        # Unblock input after slide transition completes
+        if hasattr(self, 'unblock_input'):
+            self.unblock_input()
         
         return success
     
@@ -1344,6 +1353,11 @@ class SlideshowController:
     
     def _toggle_play_pause(self) -> None:
         """Toggle slideshow play/pause state."""
+        # Block input during state transition to prevent GPU crashes
+        if hasattr(self, 'block_input'):
+            action = "resume" if not self.is_playing else "pause"
+            self.block_input(f"pause/resume transition ({action})")
+        
         self.is_playing = not self.is_playing
         self.is_paused = not self.is_playing
         if self.is_playing:
@@ -1395,6 +1409,10 @@ class SlideshowController:
             
             # Restart timer with preserved remaining time for CURRENT slide
             self._resume_timer_new()  # NEW: Use timer manager
+            
+            # Unblock input after resume completes
+            if hasattr(self, 'unblock_input'):
+                self.unblock_input()
         else:
             self.logger.info("Slideshow paused")
             # Show STOPPED overlay when pausing
@@ -1402,6 +1420,10 @@ class SlideshowController:
                 self.display_manager.show_stopped_overlay()
             # Pause timer and preserve remaining time
             self._pause_timer_new()  # NEW: Use timer manager
+            
+            # Unblock input after pause completes
+            if hasattr(self, 'unblock_input'):
+                self.unblock_input()
     
     # REMOVED: _advance_to_next_photo - dead code, replaced by advance_slideshow()
     

@@ -452,9 +452,16 @@ class PygameDisplayManager:
             self.video_playing = True
             self.current_video = video
             
-            # Use max_duration as slide timer (this is the correct slideshow timer passed from controller)
-            slide_timer = max_duration
-            self.logger.info(f"[VIDEO-COUNTDOWN] Using slide_timer: {slide_timer}s for video countdown (from max_duration parameter)")
+            # Calculate actual video duration for countdown
+            # pyvidplayer2 Video object has duration property
+            try:
+                video_duration = video.duration if hasattr(video, 'duration') and video.duration else max_duration
+                # Use minimum of actual video duration and max_duration cap
+                slide_timer = min(int(video_duration), max_duration)
+                self.logger.info(f"[VIDEO-COUNTDOWN] Video duration: {video_duration:.1f}s, max_duration: {max_duration}s, using slide_timer: {slide_timer}s")
+            except Exception as e:
+                self.logger.warning(f"[VIDEO-COUNTDOWN] Could not get video duration: {e}, using max_duration: {max_duration}s")
+                slide_timer = max_duration
             
             # Video is now ready - notify controller to start timer
             if hasattr(self, 'controller') and self.controller and hasattr(self.controller, 'current_slide'):

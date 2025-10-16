@@ -66,8 +66,11 @@ The app creates a configuration file at `~/.photo_slideshow_config.json` with th
 - **"go"** / **"start"** / **"resume"** / **"play"**: Resume slideshow
 
 *Note: Voice commands require microphone access and internet connection for speech recognition.*
-- **Single Click**: Previous photo
-- **Double Click**: Next photo
+
+### Mouse Controls
+- **Left Click**: Previous photo
+- **Right Click**: Next photo
+- **Scroll Wheel** (up or down): Pause/resume slideshow
 
 ## Phase 1 MVP Features
 
