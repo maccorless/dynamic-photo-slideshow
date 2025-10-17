@@ -110,11 +110,13 @@ class PhotoManager:
                 return True
             else:
                 self.logger.warning(f"Album '{self.album_name}' not found.")
-                self.logger.info("To create a Smart Album named 'photoframe':")
-                self.logger.info("1. Open Photos → File → New Smart Album")
-                self.logger.info("2. Name it 'photoframe' and set your criteria")
-                self.logger.info("3. Restart the slideshow")
-                self.logger.info("Using all photos as fallback for now...")
+                self.logger.info(f"Available albums: {', '.join(album_names[:10])}")
+                if len(album_names) > 10:
+                    self.logger.info(f"... and {len(album_names) - 10} more")
+                self.logger.info("To use a specific album:")
+                self.logger.info("1. Open settings (Cmd+S) and change 'Album Name'")
+                self.logger.info("2. Or create a new album/Smart Album in Photos app")
+                self.logger.info("Using all photos from library as fallback for now...")
                 return True  # Allow fallback
                 
         except (OSError, AttributeError) as e:

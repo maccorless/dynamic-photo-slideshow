@@ -16,7 +16,7 @@ class SlideshowConfig:
     
     # Default configuration values
     DEFAULT_CONFIG = {
-        "album_name": "photoframe",
+        "album_name": "All Photos",
         "filter_by_people": False,
         "filter_people_names": [],
         "filter_by_places": [],
@@ -55,7 +55,7 @@ class SlideshowConfig:
         'video_formats_supported': ['.mp4', '.mov', '.avi', '.mkv', '.wmv'], # Supported formats
         
         # Video filtering settings
-        'video_person_filter': 'Ally', # Person name to filter videos (None for no filter)
+        'video_person_filter': None, # Person name to filter videos (None for no filter)
         'video_local_only': True, # Only use locally available videos (not iCloud-only)
 
         # Voice command settings
@@ -150,7 +150,10 @@ class SlideshowConfig:
             return isinstance(value, bool)
         elif key == "album_name":
             return isinstance(value, str)
-        elif key in ["max_photos_limit", "min_people_count", "SLIDESHOW_INTERVAL", 
+        elif key == "max_photos_limit":
+            # 0 means no limit, so allow >= 0
+            return isinstance(value, int) and value >= 0
+        elif key in ["min_people_count", "SLIDESHOW_INTERVAL", 
                      "CACHE_SIZE_LIMIT_GB", "max_recent_photos", "fallback_photo_limit",
                      "min_fallback_photos", "progress_log_interval", "download_batch_size",
                      "cache_refresh_check_interval"]:
@@ -172,6 +175,25 @@ class SlideshowConfig:
     def get(self, key: str, default: Any = None) -> Any:
         """Get configuration value."""
         return self.config.get(key, default)
+    
+    def set(self, key: str, value: Any) -> bool:
+        """
+        Set configuration value with validation.
+        
+        Args:
+            key: Configuration key
+            value: New value
+            
+        Returns:
+            True if value was set, False if validation failed
+        """
+        if not self._validate_config_value(key, value):
+            self.logger.error(f"Validation failed for {key} = {value}")
+            return False
+        
+        self.config[key] = value
+        self.logger.info(f"Config updated: {key} = {value}")
+        return True
     
     def get_all(self) -> Dict[str, Any]:
         """Get all configuration values."""
