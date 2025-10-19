@@ -14,6 +14,8 @@ import numpy as np
 from pyvidplayer2 import Video
 
 from slideshow_exceptions import VideoProcessingError, DisplayError
+from settings_manager import SettingsManager
+from settings_window import SettingsWindow
 
 # Enable HEIC support
 try:
@@ -81,7 +83,23 @@ class PygameDisplayManager:
         self._test_video_failure_mode = False
         self._test_failure_type = None  # 'load', 'codec', 'playback'
         
+        # Settings window (will be initialized with settings_manager later)
+        self.settings_manager = None
+        self.settings_window = None
+        
         self.logger.info(f"Pygame Display Manager initialized: {self.screen_width}x{self.screen_height}")
+    
+    def set_controller(self, controller, settings_manager):
+        """
+        Set the controller reference and settings manager for live settings updates.
+        
+        Args:
+            controller: Slideshow controller instance
+            settings_manager: Shared SettingsManager instance
+        """
+        self.settings_manager = settings_manager
+        self.settings_window = SettingsWindow(self.screen, settings_manager, controller)
+        self.logger.info("Settings window initialized with shared settings manager and controller")
     
     def display_photo(self, photo_data, location_string: Optional[str] = None, slideshow_timer: Optional[int] = None) -> None:
         """Display a photo using pygame."""
@@ -910,10 +928,28 @@ class PygameDisplayManager:
     
     def handle_events(self) -> List[pygame.event.Event]:
         """Handle pygame events and return them for processing."""
-        return pygame.event.get()
+        events = pygame.event.get()
+        
+        # If settings window is open, let it handle events first
+        if self.settings_window is not None and self.settings_window.is_open():
+            filtered_events = []
+            for event in events:
+                if not self.settings_window.handle_event(event):
+                    # Event not handled by settings window, pass it through
+                    filtered_events.append(event)
+            return filtered_events
+        
+        return events
     
     def update_display(self) -> None:
         """Update the display."""
+        # Update settings window if open
+        if self.settings_window is not None and self.settings_window.is_open():
+            clock = pygame.time.Clock()
+            time_delta = clock.tick(60) / 1000.0
+            self.settings_window.update(time_delta)
+            self.settings_window.draw()
+        
         pygame.display.flip()
     
     def cleanup(self) -> None:
@@ -1392,6 +1428,28 @@ class PygameDisplayManager:
             return initial_font_size
     
     # REMOVED: show_filename_overlay method (per requirements - no filename/hotkey overlays)
+    
+    # ========== SETTINGS WINDOW METHODS ==========
+    
+    def show_settings(self) -> None:
+        """Show the settings window."""
+        if self.settings_window is None:
+            self.logger.error("Cannot show settings: settings_window not initialized")
+            return
+        self.logger.info("Showing settings window")
+        self.settings_window.show()
+    
+    def hide_settings(self) -> None:
+        """Hide the settings window."""
+        if self.settings_window is None:
+            self.logger.error("Cannot hide settings: settings_window not initialized")
+            return
+        self.logger.info("Hiding settings window")
+        self.settings_window.hide()
+    
+    def is_settings_open(self) -> bool:
+        """Check if settings window is currently open."""
+        return self.settings_window is not None and self.settings_window.is_open()
     
     # ========== TEST HELPER METHODS ==========
     

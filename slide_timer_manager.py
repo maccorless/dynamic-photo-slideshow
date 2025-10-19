@@ -255,7 +255,12 @@ class SlideTimerManager:
                         hasattr(self.controller.display_manager, 'show_countdown')):
                         self.controller.display_manager.show_countdown(int(remaining), self.manager_id)
                     
-                    time.sleep(1.0)  # Update every second
+                    # Sleep in small intervals to allow faster shutdown response
+                    # Check is_active every 100ms instead of sleeping for full second
+                    for _ in range(10):
+                        if not self.is_active:
+                            break
+                        time.sleep(0.1)
                     
             except Exception as e:
                 self.logger.error(f"[TIMER-{self.manager_id}] Error in countdown display: {e}")

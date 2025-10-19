@@ -15,6 +15,7 @@ from config import SlideshowConfig
 from photo_manager import PhotoManager
 from pygame_display_manager import PygameDisplayManager
 from slideshow_controller import SlideshowController, TriggerType, Direction
+from settings_manager import SettingsManager
 from cache_manager import CacheManager
 from path_config import PathConfig
 from slideshow_exceptions import SlideshowError, ConfigurationError
@@ -85,6 +86,31 @@ class PygameSlideshowController:
         self.input_block_reason = None
         self.logger.debug(f"[INPUT-UNBLOCK] Input ready after 50ms safety delay")
     
+    def _open_settings(self) -> None:
+        """Open settings window (pause slideshow first)."""
+        self.logger.info("[SETTINGS] Opening settings window")
+        
+        # Check if settings window is initialized
+        if self.display_manager.settings_window is None:
+            self.logger.error("[SETTINGS] Settings window not initialized yet")
+            return
+        
+        # Pause the slideshow if not already paused
+        if not self.controller.is_paused:
+            self.logger.info("[SETTINGS] Pausing slideshow before showing settings")
+            self.controller.toggle_pause()
+        
+        # Set callback to resume when settings close
+        def on_settings_close():
+            self.logger.info("[SETTINGS] Settings closed, resuming slideshow")
+            if self.controller.is_paused:
+                self.controller.toggle_pause()
+        
+        self.display_manager.settings_window.set_on_close_callback(on_settings_close)
+        
+        # Show settings window
+        self.display_manager.show_settings()
+    
     def _pygame_event_loop(self, key_callback):
         """Pygame-based event loop for slideshow control."""
         clock = pygame.time.Clock()
@@ -96,6 +122,8 @@ class PygameSlideshowController:
             # No callback processing needed - pure pygame approach
             
             # Handle pygame events
+            # Note: display_manager.handle_events() already processes settings window events
+            # and filters them out if settings are open, so we don't need to handle them here
             events = self.display_manager.handle_events()
             
             for event in events:
@@ -111,17 +139,32 @@ class PygameSlideshowController:
                     # Handle ESC key for immediate exit
                     if event.key == pygame.K_ESCAPE:
                         self.logger.info("ESC key pressed - initiating immediate shutdown")
-                        self.display_manager.stop()
+                        # Stop controller FIRST to cancel timers and stop threads
                         self.controller.stop()
+                        # Give threads a moment to exit gracefully
+                        time.sleep(0.1)
+                        # Then stop display manager and quit pygame
+                        self.display_manager.stop()
                         pygame.quit()
                         return  # Exit immediately without cleanup loop
                     # Handle Cmd+Q on macOS
                     elif event.key == pygame.K_q and (pygame.key.get_pressed()[pygame.K_LMETA] or pygame.key.get_pressed()[pygame.K_RMETA]):
                         self.logger.info("Cmd+Q pressed - initiating immediate shutdown")
-                        self.display_manager.stop()
+                        # Stop controller FIRST to cancel timers and stop threads
                         self.controller.stop()
+                        # Give threads a moment to exit gracefully
+                        time.sleep(0.1)
+                        # Then stop display manager and quit pygame
+                        self.display_manager.stop()
                         pygame.quit()
                         return  # Exit immediately without cleanup loop
+                    # Handle Cmd+S (macOS) or Ctrl+S (Windows/Linux) for settings
+                    elif event.key == pygame.K_s:
+                        mods = pygame.key.get_mods()
+                        if (mods & pygame.KMOD_META) or (mods & pygame.KMOD_CTRL):
+                            self.logger.info("Cmd+S/Ctrl+S pressed - opening settings")
+                            self._open_settings()
+                            continue
                     # Removed: Shift key handling for filename display (per requirements)
                     else:
                         # Convert pygame key events to normalized format
@@ -180,8 +223,15 @@ class PygameSlideshowController:
                         self.logger.error(f"[PYGAME-MAIN] Error processing voice command: {e}")
                         break  # Stop processing on error
             
-            # Maintain reasonable frame rate
-            clock.tick(30)  # Reduce to 30 FPS to prevent excessive CPU usage
+            # Update and draw settings window if open
+            if self.display_manager.is_settings_open():
+                time_delta = clock.tick(60) / 1000.0  # Higher FPS for UI responsiveness
+                self.display_manager.settings_window.update(time_delta)
+                self.display_manager.settings_window.draw()
+                pygame.display.flip()
+            else:
+                # Maintain reasonable frame rate
+                clock.tick(30)  # Reduce to 30 FPS to prevent excessive CPU usage
         
         # Cleanup
         self.display_manager.cleanup()
@@ -281,8 +331,18 @@ def main() -> None:
         # Create pygame display manager
         display_manager = PygameDisplayManager(config)
         
+        # Create settings manager using the SAME config file as SlideshowConfig
+        # This ensures settings changes are persisted to the correct file
+        settings_manager = SettingsManager(
+            schema_path="config_schema.json",
+            config_path=str(config.config_path)  # Use SlideshowConfig's path
+        )
+        
         # Create pygame-compatible controller
         controller = PygameSlideshowController(config, photo_manager, display_manager, path_config)
+        
+        # Initialize settings window with controller and settings manager
+        display_manager.set_controller(controller.controller, settings_manager)
         
         logger.info(f"Starting pygame slideshow with {len(photos)} photos...")
         logger.info("Controls: Spacebar (pause/play), Arrow keys (prev/next), Shift (show filename), Escape (exit)")

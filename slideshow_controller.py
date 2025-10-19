@@ -435,18 +435,9 @@ class SlideshowController:
         
         # Determine if this is a video or photo and create appropriate slide
         if self._is_video_content(photo):
-            self.logger.info(f"[SLIDE-CREATION] Random selection was video, getting filtered video instead")
-            # Use filtered video selection instead of random video
-            filtered_video = self._get_filtered_video()
-            if filtered_video:
-                return self._create_slide_from_video(filtered_video, 0)
-            else:
-                self.logger.warning(f"[SLIDE-CREATION] No filtered video available, falling back to photo")
-                # Fall back to getting a photo instead
-                photo, photo_index = self._get_random_photo_only()
-                if photo:
-                    return self._create_slide_from_photo(photo, photo_index)
-                return None
+            self.logger.info(f"[SLIDE-CREATION] Random selection was video: {photo.get('filename', 'unknown')}")
+            # Use the cached video directly (respects same filter as photos)
+            return self._create_slide_from_video(photo, photo_index)
         else:
             self.logger.info(f"[SLIDE-CREATION] Creating photo slide: {photo.get('filename', 'unknown')}")
             return self._create_slide_from_photo(photo, photo_index)
