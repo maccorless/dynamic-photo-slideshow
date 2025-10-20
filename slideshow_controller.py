@@ -182,7 +182,7 @@ class SlideshowController:
         elif direction == Direction.PREVIOUS:
             return self._determine_next_slide_backward()
         else:
-            self.logger.error(f"[DETERMINE] Unknown direction: {direction}")
+            self.logger.error(f"Unknown direction: {direction}")
             return None
     
     def _determine_next_slide_forward(self) -> Optional[Dict[str, Any]]:
@@ -196,10 +196,10 @@ class SlideshowController:
             if self.history_position < len(self.slide_history):
                 slide = self.slide_history[self.history_position]
                 if self._validate_slide(slide):
-                    self.logger.info(f"[DETERMINE] Retrieved slide from history position {self.history_position}")
+                    self.logger.debug(f"Retrieved slide from history position {self.history_position}")
                     return slide
                 else:
-                    self.logger.warning(f"[DETERMINE] Invalid slide in history, creating new one")
+                    self.logger.warning(f"Invalid slide in history, creating new one")
         
         # Create new slide (includes video test mode logic)
         return self._create_new_slide()
@@ -209,17 +209,17 @@ class SlideshowController:
         # Update navigation state
         success = self._navigate_previous()
         if not success:
-            self.logger.info("[DETERMINE] Cannot go back further in history")
+            self.logger.debug("Cannot go back further in history")
             return None
         
         # Get slide from history
         if self.history_position >= 0 and self.history_position < len(self.slide_history):
             slide = self.slide_history[self.history_position]
             if self._validate_slide(slide):
-                self.logger.info(f"[DETERMINE] Retrieved slide from history position {self.history_position}")
+                self.logger.debug(f"Retrieved slide from history position {self.history_position}")
                 return slide
         
-        self.logger.error("[DETERMINE] Failed to retrieve slide from history")
+        self.logger.error("Failed to retrieve slide from history")
         return None
     
     def _stop_current_timer(self) -> None:
@@ -266,7 +266,7 @@ class SlideshowController:
                     
                     # Use minimum of video duration and config max
                     calculated_duration = min(int(video_duration), config_max)
-                    self.logger.info(f"Video slideshow timer: {calculated_duration}s (video: {video_duration}s, config: {config_max}s)")
+                    self.logger.debug(f"Video slideshow timer: {calculated_duration}s (video: {video_duration}s, config: {config_max}s)")
                     return calculated_duration
             
             elif isinstance(photo_data, list):
@@ -279,7 +279,7 @@ class SlideshowController:
                             video_duration = self._get_video_duration(file_path)
                             config_max = self.config.get('VIDEO_MAX_DURATION', 15)
                             calculated_duration = min(int(video_duration), config_max)
-                            self.logger.info(f"Mixed content slideshow timer: {calculated_duration}s")
+                            self.logger.debug(f"Mixed content slideshow timer: {calculated_duration}s")
                             return calculated_duration
             
             # Default to photo slideshow interval for photos
@@ -354,7 +354,7 @@ class SlideshowController:
         if current_time - self.last_cache_check >= self.cache_refresh_interval:
             self.logger.debug("Checking for new photos (periodic cache refresh)")
             if self.photo_manager.check_and_load_new_photos():
-                self.logger.info("New photos detected and loaded during slideshow")
+                self.logger.debug("New photos detected and loaded during slideshow")
             self.last_cache_check = current_time
     
     def _get_current_slide(self) -> Optional[Dict[str, Any]]:
@@ -687,19 +687,16 @@ class SlideshowController:
             
             # Handle videos that need to be exported from Apple Photos
             if not video_path and video.get('needs_export'):
-                self.logger.info(f"[VIDEO-EXPORT] Video needs export, calling photo_manager._export_video_temporarily")
-                self.logger.info(f"[VIDEO-EXPORT] Video data keys: {list(video.keys())}")
-                self.logger.info(f"[VIDEO-EXPORT] Has osxphoto_object: {video.get('osxphoto_object') is not None}")
-                self.logger.info(f"[VIDEO-EXPORT] needs_export: {video.get('needs_export')}")
+                self.logger.debug(f"Video needs export, calling photo_manager._export_video_temporarily")
                 video_path = self.photo_manager._export_video_temporarily(video)
                 if video_path:
-                    self.logger.info(f"[VIDEO-EXPORT] Successfully exported video to: {video_path}")
+                    self.logger.debug(f"Successfully exported video to: {video_path}")
                     # Update the video data with the exported path
                     video['path'] = video_path
                     video['needs_export'] = False
                 else:
-                    self.logger.error(f"[VIDEO-EXPORT] Failed to export video: {video.get('filename', 'unknown')}")
-                    self.logger.error(f"[VIDEO-EXPORT] Video data for debugging: {video}")
+                    self.logger.error(f"Failed to export video: {video.get('filename', 'unknown')}")
+                    self.logger.error(f"Video data for debugging: {video}")
                     return False
             
             if video_path:
@@ -710,14 +707,14 @@ class SlideshowController:
                 
                 # Create completion callback to handle video completion
                 def video_completion_callback():
-                    self.logger.info(f"[VIDEO] Video completed - advancing to next slide")
+                    self.logger.debug(f"Video completed - advancing to next slide")
                     # Videos don't use timer managers - advance directly
                     self._schedule_advancement_on_main_thread()
                 
                 success = self.display_manager.display_video(video_path, overlays, display_duration, video_completion_callback, video)
                 
                 if success:
-                    self.logger.info(f"[VIDEO] Successfully displayed video - duration: {slideshow_timer}s, slide_id: {slide_id}")
+                    self.logger.debug(f"Successfully displayed video - duration: {slideshow_timer}s, slide_id: {slide_id}")
                     return True
                 else:
                     self.logger.error(f"Failed to display video: {video_path}")
@@ -778,31 +775,31 @@ class SlideshowController:
             person_filter = self.config.get('video_person_filter')
             local_only = self.config.get('video_local_only', True)
             
-            self.logger.info(f"[VIDEO-FILTER] Filtering videos - person: '{person_filter}', local_only: {local_only}")
+            self.logger.debug(f"Filtering videos - person: '{person_filter}', local_only: {local_only}")
             
             # Get videos from photo manager's photo database
             if not hasattr(self.photo_manager, 'photos_db') or not self.photo_manager.photos_db:
-                self.logger.error(f"[VIDEO-FILTER] No photos database available")
+                self.logger.error(f"No photos database available")
                 return None
             
             # Start with all videos or filter by person
             if person_filter:
-                self.logger.info(f"[VIDEO-FILTER] Searching for videos with person '{person_filter}'")
+                self.logger.debug(f"Searching for videos with person '{person_filter}'")
                 try:
                     all_photos = self.photo_manager.photos_db.photos(persons=[person_filter])
                     candidate_videos = [p for p in all_photos if p.ismovie]
-                    self.logger.info(f"[VIDEO-FILTER] Found {len(candidate_videos)} videos with person '{person_filter}'")
+                    self.logger.debug(f"Found {len(candidate_videos)} videos with person '{person_filter}'")
                 except Exception as e:
-                    self.logger.error(f"[VIDEO-FILTER] Error searching for person '{person_filter}': {e}")
+                    self.logger.error(f"Error searching for person '{person_filter}': {e}")
                     return None
             else:
                 # No person filter - get all videos
                 all_photos = self.photo_manager.photos_db.photos()
                 candidate_videos = [p for p in all_photos if p.ismovie]
-                self.logger.info(f"[VIDEO-FILTER] Found {len(candidate_videos)} total videos (no person filter)")
+                self.logger.debug(f"Found {len(candidate_videos)} total videos (no person filter)")
             
             if not candidate_videos:
-                self.logger.warning(f"[VIDEO-FILTER] No videos found matching criteria")
+                self.logger.warning(f"No videos found matching criteria")
                 return None
             
             # Filter for local availability if required
@@ -815,11 +812,11 @@ class SlideshowController:
                     if not is_missing and has_path:
                         locally_available.append(video)
                 
-                self.logger.info(f"[VIDEO-FILTER] {len(locally_available)} of {len(candidate_videos)} videos are locally available")
+                self.logger.debug(f"{len(locally_available)} of {len(candidate_videos)} videos are locally available")
                 candidate_videos = locally_available
             
             if not candidate_videos:
-                self.logger.warning(f"[VIDEO-FILTER] No locally available videos found")
+                self.logger.warning(f"No locally available videos found")
                 return None
             
             # Select random video from filtered candidates
@@ -829,14 +826,14 @@ class SlideshowController:
             # Extract metadata using existing photo pipeline
             video_data = self.photo_manager._extract_photo_metadata(selected_video)
             if video_data:
-                self.logger.info(f"[VIDEO-FILTER] Selected video: {video_data.get('filename', 'unknown')}")
+                self.logger.debug(f"Selected video: {video_data.get('filename', 'unknown')}")
                 return video_data
             else:
-                self.logger.error(f"[VIDEO-FILTER] Failed to extract metadata for selected video")
+                self.logger.error(f"Failed to extract metadata for selected video")
                 return None
                 
         except Exception as e:
-            self.logger.error(f"[VIDEO-FILTER] Error getting filtered video: {e}")
+            self.logger.error(f"Error getting filtered video: {e}")
             return None
     
     def _get_test_video_if_applicable(self) -> Optional[Dict[str, Any]]:
@@ -851,14 +848,14 @@ class SlideshowController:
         # Increment slide count for this new slide
         self.slide_count += 1
         
-        self.logger.info(f"[VIDEO-TEST] Checking slide {self.slide_count} for real video from Apple Photos")
+        self.logger.debug(f"Checking slide {self.slide_count} for real video from Apple Photos")
         
         if self.slide_count == 2 or self.slide_count == 5:
             # Get filtered video for slides 2 and 5 using unified method
-            self.logger.info(f"[VIDEO-TEST] Getting filtered video for slide {self.slide_count}")
+            self.logger.debug(f"Getting filtered video for slide {self.slide_count}")
             return self._get_filtered_video()
         
-        self.logger.info(f"[VIDEO-TEST] No test video for slide {self.slide_count}")
+        self.logger.debug(f"No test video for slide {self.slide_count}")
         return None
     
     # REMOVED: _get_real_video_for_test - replaced by unified _get_filtered_video method
