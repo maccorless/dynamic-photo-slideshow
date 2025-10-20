@@ -444,7 +444,6 @@ class SlideshowController:
             
             # CRITICAL: Clean up ALL previous timers BEFORE displaying new slide
             # This ensures no residual timer state from pause/resume cycles
-            self.logger.info(f"[DISPLAY] Cleaning up all previous timers before displaying new slide")
             self._cleanup_previous_slide_timers()
             
             # Capture the slide ID BEFORE updating current_slide (for race condition check later)
@@ -637,8 +636,6 @@ class SlideshowController:
             self.logger.info(f"Displaying portrait pair: {photos[0].get('filename', 'Unknown')}, {photos[1].get('filename', 'Unknown')}")
             
             # Slide ID already assigned during slide creation
-            slide_id = slide.get('slide_id', 'UNKNOWN')
-            self.logger.info(f"[SLIDE-{slide_id}] Displaying portrait pair with slide ID")
             
             # Display the photo pair
             self.display_manager.display_photo(photos, location_string, slideshow_timer)
@@ -661,8 +658,6 @@ class SlideshowController:
             self.logger.info(f"Displaying single photo: {photo.get('filename', 'Unknown')}")
             
             # Slide ID already assigned during slide creation
-            slide_id = slide.get('slide_id', 'UNKNOWN')
-            self.logger.info(f"[SLIDE-{slide_id}] Displaying single photo with slide ID")
             
             # Display the photo
             self.display_manager.display_photo(photo, location_string, slideshow_timer)
@@ -686,7 +681,6 @@ class SlideshowController:
             
             # Slide ID already assigned during slide creation
             slide_id = slide.get('slide_id', 'UNKNOWN')
-            self.logger.info(f"[SLIDE-{slide_id}] Displaying video with slide ID")
             
             # Display the video using existing video display logic
             video_path = video.get('path')
@@ -891,11 +885,9 @@ class SlideshowController:
         if self.history_position == -1:
             self.current_slide_id += 1
             slide_id = self.current_slide_id
-            self.logger.info(f"[SLIDE-{slide_id}] Photo pair assigned slide ID (new)")
         else:
             # When navigating history, use a unique slide ID but don't increment counter
             slide_id = self.current_slide_id + 1000 + self.history_position
-            self.logger.info(f"[SLIDE-{slide_id}] Photo pair assigned slide ID (history position {self.history_position})")
         
         # Clear countdown immediately when slide changes to prevent stale display
         if hasattr(self.display_manager, 'clear_countdown_timer'):
