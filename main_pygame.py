@@ -289,13 +289,6 @@ class PygameSlideshowController:
     
     def start_slideshow(self):
         """Start the slideshow using pygame."""
-        # Log test mode keyboard shortcuts
-        self.logger.info("="*80)
-        self.logger.info("VIDEO ERROR TESTING SHORTCUTS:")
-        self.logger.info("  Shift+T = Enable video LOAD failure test (simulates missing file)")
-        self.logger.info("  Shift+C = Enable video CODEC failure test (simulates bad codec)")
-        self.logger.info("  Shift+D = Disable test mode (return to normal playback)")
-        self.logger.info("="*80)
         return self.controller.start_slideshow()
 
 
