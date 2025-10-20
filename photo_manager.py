@@ -15,6 +15,8 @@ warnings.filterwarnings('ignore', module='osxphotos')
 
 try:
     import osxphotos
+    # Suppress osxphotos logger warnings (platform compatibility messages)
+    logging.getLogger('osxphotos').setLevel(logging.ERROR)
 except ImportError:
     osxphotos = None
 
