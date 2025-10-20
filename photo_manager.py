@@ -5,9 +5,13 @@ Handles Apple Photos integration, album verification, photo loading, and video d
 
 import logging
 import random
+import warnings
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime, timezone
+
+# Suppress osxphotos platform version warnings
+warnings.filterwarnings('ignore', module='osxphotos')
 
 try:
     import osxphotos
