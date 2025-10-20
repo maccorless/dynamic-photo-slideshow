@@ -85,7 +85,7 @@ class PygameSlideshowController:
     
     def _open_settings(self) -> None:
         """Open settings window (pause slideshow first)."""
-        self.logger.info("[SETTINGS] Opening settings window")
+        self.logger.debug("Opening settings window")
         
         # Check if settings window is initialized
         if self.display_manager.settings_window is None:
@@ -94,12 +94,12 @@ class PygameSlideshowController:
         
         # Pause the slideshow if not already paused
         if not self.controller.is_paused:
-            self.logger.info("[SETTINGS] Pausing slideshow before showing settings")
+            self.logger.debug("Pausing slideshow before showing settings")
             self.controller.toggle_pause()
         
         # Set callback to resume when settings close
         def on_settings_close():
-            self.logger.info("[SETTINGS] Settings closed, resuming slideshow")
+            self.logger.debug("Settings closed, resuming slideshow")
             if self.controller.is_paused:
                 self.controller.toggle_pause()
         
@@ -135,7 +135,7 @@ class PygameSlideshowController:
                         continue
                     # Handle ESC key for immediate exit
                     if event.key == pygame.K_ESCAPE:
-                        self.logger.info("ESC key pressed - initiating immediate shutdown")
+                        self.logger.debug("ESC key pressed - initiating immediate shutdown")
                         # Stop controller FIRST to cancel timers and stop threads
                         self.controller.stop()
                         # Give threads a moment to exit gracefully
@@ -146,7 +146,7 @@ class PygameSlideshowController:
                         return  # Exit immediately without cleanup loop
                     # Handle Cmd+Q on macOS
                     elif event.key == pygame.K_q and (pygame.key.get_pressed()[pygame.K_LMETA] or pygame.key.get_pressed()[pygame.K_RMETA]):
-                        self.logger.info("Cmd+Q pressed - initiating immediate shutdown")
+                        self.logger.debug("Cmd+Q pressed - initiating immediate shutdown")
                         # Stop controller FIRST to cancel timers and stop threads
                         self.controller.stop()
                         # Give threads a moment to exit gracefully
@@ -159,7 +159,7 @@ class PygameSlideshowController:
                     elif event.key == pygame.K_s:
                         mods = pygame.key.get_mods()
                         if (mods & pygame.KMOD_META) or (mods & pygame.KMOD_CTRL):
-                            self.logger.info("Cmd+S/Ctrl+S pressed - opening settings")
+                            self.logger.debug("Cmd+S/Ctrl+S pressed - opening settings")
                             self._open_settings()
                             continue
                     # Removed: Shift key handling for filename display (per requirements)
@@ -175,10 +175,10 @@ class PygameSlideshowController:
                     
                     # Handle mouse button clicks and scroll wheel
                     if event.button == 1:  # Left click
-                        self.logger.info("Left mouse click - going to previous slide")
+                        self.logger.debug("Left mouse click - going to previous slide")
                         self.controller.advance_slideshow(TriggerType.MOUSE, Direction.PREVIOUS)
                     elif event.button == 3:  # Right click
-                        self.logger.info("Right mouse click - going to next slide")
+                        self.logger.debug("Right mouse click - going to next slide")
                         self.controller.advance_slideshow(TriggerType.MOUSE, Direction.NEXT)
                     elif event.button == 4 or event.button == 5:  # Scroll wheel UP or DOWN
                         # Debounce scroll wheel to prevent rapid-fire events
@@ -186,7 +186,7 @@ class PygameSlideshowController:
                         if current_time - self.last_scroll_time >= self.scroll_debounce_ms:
                             self.last_scroll_time = current_time
                             direction = "UP" if event.button == 4 else "DOWN"
-                            self.logger.info(f"Scroll wheel {direction} - toggling pause")
+                            self.logger.debug(f"Scroll wheel {direction} - toggling pause")
                             self.controller.toggle_pause()
                         else:
                             self.logger.debug(f"Scroll wheel event ignored (debounced, {current_time - self.last_scroll_time}ms since last)")
@@ -258,7 +258,7 @@ class PygameSlideshowController:
             elif pygame_event.key == pygame.K_d:
                 # Shift+D: Disable test mode
                 self.display_manager.disable_video_failure_test_mode()
-                self.logger.info("[TEST-MODE] Video failure test mode DISABLED - normal playback")
+                self.logger.debug("Video failure test mode DISABLED - normal playback")
                 return
         
         # Map pygame keys to normalized key identifiers
@@ -282,7 +282,7 @@ class PygameSlideshowController:
             
             # Handle immediate exit for escape key
             if pygame_event.key == pygame.K_ESCAPE:
-                self.logger.info("ESC key pressed - initiating immediate shutdown")
+                self.logger.debug("ESC key pressed - initiating immediate shutdown")
                 self.display_manager.stop()
                 self.controller.stop()
                 return  # Exit immediately
