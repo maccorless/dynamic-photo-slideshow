@@ -5,7 +5,6 @@ Handles Apple Photos integration, album verification, photo loading, and video d
 
 import logging
 import random
-import warnings
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime, timezone
@@ -14,10 +13,6 @@ try:
     import osxphotos
 except ImportError:
     osxphotos = None
-
-# Suppress osxphotos logger warnings AFTER import (platform compatibility messages)
-if osxphotos:
-    logging.getLogger('osxphotos').setLevel(logging.ERROR)
 
 from cache_manager import CacheManager
 from path_config import PathConfig
