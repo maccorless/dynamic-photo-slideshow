@@ -1248,7 +1248,6 @@ class SlideshowController:
         if self.is_playing:
             self.logger.info("Slideshow resumed")
             # IMPORTANT: Resume the current slide, don't advance to next
-            self.logger.info("[RESUME] Resuming current slide, not advancing")
             
             # Clear STOPPED overlay when resuming
             if hasattr(self, 'display_manager') and self.display_manager:
@@ -1258,38 +1257,21 @@ class SlideshowController:
             if self.current_slide:
                 # Use self.current_slide directly - DON'T call _get_current_slide() as it may create new slides
                 slide = self.current_slide
-                self.logger.info(f"[RESUME] Re-displaying current slide after overlay clear")
                 # Re-display the current slide without creating a new one
                 slide_type = slide.get('type', 'unknown')
-                self.logger.info(f"[RESUME] Current slide type: {slide_type}")
                 if slide_type in ['portrait_pair', 'single_portrait', 'single_landscape']:
                     # For photos, re-display using display manager
-                    self.logger.info(f"[RESUME] Slide data keys: {list(slide.keys())}")
-                    
-                    # Try different possible keys for photo data
                     photo_data = slide.get('photo_data') or slide.get('photos') or slide.get('images')
                     location_string = slide.get('location_string', '')
                     slideshow_timer = slide.get('slide_timer', 10)
                     
-                    self.logger.info(f"[RESUME] Photo data available: {photo_data is not None}")
-                    self.logger.info(f"[RESUME] Location string: {location_string}")
-                    self.logger.info(f"[RESUME] Slideshow timer: {slideshow_timer}")
-                    
                     if photo_data and hasattr(self, 'display_manager'):
-                        self.logger.info(f"[RESUME] Calling display_photo to restore current slide")
                         try:
                             self.display_manager.display_photo(photo_data, location_string, slideshow_timer)
-                            self.logger.info(f"[RESUME] display_photo completed successfully")
                         except Exception as e:
-                            self.logger.error(f"[RESUME] display_photo failed: {e}")
-                            import traceback
-                            self.logger.error(f"[RESUME] Traceback: {traceback.format_exc()}")
+                            self.logger.error(f"Error re-displaying photo after resume: {e}")
                     else:
-                        self.logger.error(f"[RESUME] Cannot re-display - photo_data: {photo_data is not None}, display_manager: {hasattr(self, 'display_manager')}")
-                        # For now, just log the issue - the black screen will remain until next slide
-                        self.logger.error(f"[RESUME] Black screen will remain until timer expires and advances to next slide")
-                else:
-                    self.logger.info(f"[RESUME] Non-photo slide type, letting video loop handle re-display")
+                        self.logger.warning(f"Cannot re-display photo - missing data or display manager")
                     # For videos, let the video loop handle re-display
             
             # Restart timer with preserved remaining time for CURRENT slide

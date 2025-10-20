@@ -1122,17 +1122,10 @@ class PygameDisplayManager:
     
     def clear_stopped_overlay(self) -> None:
         """Clear STOPPED overlay when resuming slideshow."""
-        try:
-            self.logger.info(f"[OVERLAY-CLEAR] Clearing overlay - letting natural display updates handle it")
-            
-            # For videos: The overlay will be cleared when video frames resume drawing
-            # For photos: The overlay will be cleared by the next countdown update
-            # This approach prevents black screen issues while ensuring overlay disappears
-            
-            self.logger.info(f"[OVERLAY-CLEAR] Overlay will be cleared by next display update")
-                
-        except Exception as e:
-            self.logger.error(f"Error clearing stopped overlay: {e}")
+        # For videos: The overlay will be cleared when video frames resume drawing
+        # For photos: The overlay will be cleared by the next countdown update
+        # This approach prevents black screen issues while ensuring overlay disappears
+        pass
     
     def show_voice_command_overlay(self, command: str) -> None:
         """Show voice command feedback overlay in top-right corner (photos only).
