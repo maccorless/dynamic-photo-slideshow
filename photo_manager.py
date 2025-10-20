@@ -10,15 +10,14 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime, timezone
 
-# Suppress osxphotos platform version warnings
-warnings.filterwarnings('ignore', module='osxphotos')
-
 try:
     import osxphotos
-    # Suppress osxphotos logger warnings (platform compatibility messages)
-    logging.getLogger('osxphotos').setLevel(logging.ERROR)
 except ImportError:
     osxphotos = None
+
+# Suppress osxphotos logger warnings AFTER import (platform compatibility messages)
+if osxphotos:
+    logging.getLogger('osxphotos').setLevel(logging.ERROR)
 
 from cache_manager import CacheManager
 from path_config import PathConfig
