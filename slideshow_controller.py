@@ -50,9 +50,9 @@ class SlideshowController:
         
         # Initialize voice command service
         try:
-            self.logger.info("[VOICE-INIT] Creating VoiceCommandService...")
+            self.logger.debug(f"Creating VoiceCommandService...")
             self.voice_service = VoiceCommandService(self, config)
-            self.logger.info(f"[VOICE-INIT] VoiceCommandService created successfully, is_enabled={self.voice_service.is_enabled}")
+            self.logger.debug(f"VoiceCommandService created successfully, is_enabled={self.voice_service.is_enabled}")
         except Exception as e:
             self.logger.error(f"[VOICE-INIT] Failed to create VoiceCommandService: {e}")
             import traceback
@@ -124,7 +124,7 @@ class SlideshowController:
         if hasattr(self, 'block_input'):
             self.block_input(f"slide navigation ({trigger.value}, {direction.value})")
         
-        self.logger.info(f"Advancing slideshow: {trigger.value} -> {direction.value}")
+        self.logger.debug(f"Advancing slideshow: {trigger.value} -> {direction.value}")
         
         # Check conditions for advancing
         if not self.is_running:
@@ -311,7 +311,7 @@ class SlideshowController:
             # Start voice command service if available
             if self.voice_service.is_available():
                 if self.voice_service.start_listening():
-                    self.logger.info("Voice commands enabled: say 'next', 'back', 'stop', or 'go'")
+                    self.logger.debug("Voice commands enabled: say 'next', 'back', 'stop', or 'go'")
                 else:
                     self.logger.warning("Voice commands failed to start")
             else:
@@ -633,7 +633,7 @@ class SlideshowController:
             slideshow_timer = slide['slide_timer']
             
             self.current_photo_pair = photos
-            self.logger.info(f"Displaying portrait pair: {photos[0].get('filename', 'Unknown')}, {photos[1].get('filename', 'Unknown')}")
+            self.logger.debug(f"Displaying portrait pair: {photos[0].get('filename', 'Unknown')}, {photos[1].get('filename', 'Unknown')}")
             
             # Slide ID already assigned during slide creation
             
@@ -655,7 +655,7 @@ class SlideshowController:
             slideshow_timer = slide['slide_timer']
             
             self.current_photo_pair = photo
-            self.logger.info(f"Displaying single photo: {photo.get('filename', 'Unknown')}")
+            self.logger.debug(f"Displaying single photo: {photo.get('filename', 'Unknown')}")
             
             # Slide ID already assigned during slide creation
             
@@ -677,7 +677,7 @@ class SlideshowController:
             slideshow_timer = slide['slide_timer']
             
             self.current_photo_pair = video
-            self.logger.info(f"Displaying video: {video.get('filename', 'Unknown')}")
+            self.logger.debug(f"Displaying video: {video.get('filename', 'Unknown')}")
             
             # Slide ID already assigned during slide creation
             slide_id = slide.get('slide_id', 'UNKNOWN')
@@ -1098,7 +1098,7 @@ class SlideshowController:
                     'slide_id': slide_id
                 }
                 
-                self.logger.info(f"Created portrait pair slide: {photo.get('filename', 'Unknown')}, {second_photo.get('filename', 'Unknown')} ({photo_index+1}, {second_photo_index+1} of {photo_count})")
+                self.logger.debug(f"Created portrait pair slide: {photo.get('filename', 'Unknown')}, {second_photo.get('filename', 'Unknown')} ({photo_index+1}, {second_photo_index+1} of {photo_count})")
                 return slide
         
         # Create single photo slide (landscape or single portrait)
@@ -1138,7 +1138,7 @@ class SlideshowController:
             'slide_id': slide_id
         }
         
-        self.logger.info(f"Created video slide: {video.get('filename', 'Unknown')} ({video_index+1} of {video_count})")
+        self.logger.debug(f"Created video slide: {video.get('filename', 'Unknown')} ({video_index+1} of {video_count})")
         return slide
     
     def _add_slide_to_history(self, slide: Dict[str, Any]) -> None:
@@ -1246,7 +1246,7 @@ class SlideshowController:
         self.is_playing = not self.is_playing
         self.is_paused = not self.is_playing
         if self.is_playing:
-            self.logger.info("Slideshow resumed")
+            self.logger.debug("Slideshow resumed")
             # IMPORTANT: Resume the current slide, don't advance to next
             
             # Clear STOPPED overlay when resuming
@@ -1281,7 +1281,7 @@ class SlideshowController:
             if hasattr(self, 'unblock_input'):
                 self.unblock_input()
         else:
-            self.logger.info("Slideshow paused")
+            self.logger.debug("Slideshow paused")
             # Show STOPPED overlay when pausing
             if hasattr(self, 'display_manager') and self.display_manager:
                 self.display_manager.show_stopped_overlay()
