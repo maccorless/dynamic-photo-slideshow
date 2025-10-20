@@ -89,9 +89,9 @@ class VoiceCommandService:
                 
                 # Adjust for ambient noise
                 with self.microphone as source:
-                    self.logger.info("Calibrating microphone for ambient noise...")
+                    self.logger.debug("Calibrating microphone for ambient noise...")
                     self.recognizer.adjust_for_ambient_noise(source, duration=1)
-                    self.logger.info(f"Energy threshold set to: {self.recognizer.energy_threshold}")
+                    self.logger.debug(f"Energy threshold set to: {self.recognizer.energy_threshold}")
             
             # Add any custom variants from config
             custom_variants = self.config.get('custom_voice_variants', {})
@@ -100,7 +100,7 @@ class VoiceCommandService:
                     self.command_matcher.add_custom_variant(command, variant)
             
             self.is_enabled = True
-            self.logger.info(f"Voice command service initialized with {self.voice_provider.get_provider_name()}")
+            self.logger.debug(f"Voice command service initialized with {self.voice_provider.get_provider_name()}")
             return True
             
         except Exception as e:
@@ -175,7 +175,7 @@ class VoiceCommandService:
             text: Recognized speech text
         """
         # Log all voice recognition attempts for debugging
-        self.logger.info(f"Voice recognition attempt: '{text}'")
+        self.logger.debug(f"Voice recognition attempt: '{text}'")
         
         # Use the configurable command matcher (no wake word - single word commands only)
         match_result = self.command_matcher.find_matching_command(text)
@@ -191,13 +191,13 @@ class VoiceCommandService:
                 self.controller.pause_for_voice_command()
                 paused_for_command = True
             
-            self.logger.info(f"Voice command recognized: {match_type} match '{matched_variant}' -> {command} (from text: '{text}')")
+            self.logger.debug(f"Voice command recognized: {match_type} match '{matched_variant}' -> {command} (from text: '{text}')")
             self._show_voice_feedback(command)
             self._schedule_command_execution(command, matched_variant)
             command_found = True
         
         if not command_found:
-            self.logger.info(f"No matching voice command found for: '{text}'")
+            self.logger.debug(f"No matching voice command found for: '{text}'")
         
         # Resume timer if it was playing before the command AND we actually paused it
         if paused_for_command and self.was_playing_before_command:
