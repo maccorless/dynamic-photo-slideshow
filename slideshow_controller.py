@@ -1114,7 +1114,7 @@ class SlideshowController:
             'slide_id': slide_id
         }
         
-        self.logger.info(f"Created single photo slide: {photo.get('filename', 'Unknown')} ({photo_index+1} of {photo_count})")
+        self.logger.debug(f"Created single photo slide: {photo.get('filename', 'Unknown')} ({photo_index+1} of {photo_count})")
         return slide
     
     def _create_slide_from_video(self, video: Dict[str, Any], video_index: int) -> Dict[str, Any]:

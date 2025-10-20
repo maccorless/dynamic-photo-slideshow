@@ -127,7 +127,7 @@ class VoiceCommandService:
             )
             
             self.is_listening = True
-            self.logger.info("Voice command listening started")
+            self.logger.debug("Voice command listening started")
             return True
             
         except Exception as e:
@@ -140,7 +140,7 @@ class VoiceCommandService:
             try:
                 self.stop_listening(wait_for_stop=False)
                 self.is_listening = False
-                self.logger.info("Voice command listening stopped")
+                self.logger.debug("Voice command listening stopped")
             except Exception as e:
                 self.logger.error(f"Error stopping voice listening: {e}")
     
