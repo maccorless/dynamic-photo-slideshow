@@ -603,7 +603,7 @@ class PygameDisplayManager:
                 
                 # Check if video is still playing
                 if not video.active:
-                    self.logger.info("Video ended naturally")
+                    self.logger.debug("Video ended naturally")
                     break
                 
                 # Clear screen and draw video frame
@@ -854,9 +854,9 @@ class PygameDisplayManager:
                     # Render date and location overlays using photo styling
                     if overlay_type in ['date', 'location'] and position in ['left_margin', 'right_margin']:
                         self._render_margin_overlay(text, position)
-                        self.logger.info(f"[VIDEO-OVERLAY-RENDER] Rendered {overlay_type} overlay: '{text}' at {position}")
+                        self.logger.debug(f"Rendered {overlay_type} overlay: '{text}' at {position}")
                     else:
-                        self.logger.info(f"[VIDEO-OVERLAY-SKIP] Skipped {overlay_type} overlay (not date/location or wrong position): '{text}' at {position}")
+                        self.logger.debug(f"Skipped {overlay_type} overlay (not date/location or wrong position): '{text}' at {position}")
             
             # Countdown timer - use consistent styling with photos
             if remaining_time != self._last_countdown:
