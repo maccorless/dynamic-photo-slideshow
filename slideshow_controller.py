@@ -124,19 +124,7 @@ class SlideshowController:
         if hasattr(self, 'block_input'):
             self.block_input(f"slide navigation ({trigger.value}, {direction.value})")
         
-        current_time = time.time()
-        self.logger.info(f"[ADVANCE-DEBUG] ===== SLIDESHOW ADVANCEMENT ======")
-        self.logger.info(f"[ADVANCE-DEBUG] Trigger: {trigger.value}")
-        self.logger.info(f"[ADVANCE-DEBUG] Direction: {direction.value}")
-        self.logger.info(f"[ADVANCE-DEBUG] Current time: {current_time:.3f}")
-        
-        # Check current timer state
-        if self.current_timer_manager:
-            remaining = self.current_timer_manager.get_remaining_time()
-            self.logger.info(f"[ADVANCE-DEBUG] Timer manager active: {self.current_timer_manager.is_timer_active()}")
-            self.logger.info(f"[ADVANCE-DEBUG] Timer remaining: {remaining:.3f}s")
-        else:
-            self.logger.info(f"[ADVANCE-DEBUG] No timer manager")
+        self.logger.info(f"Advancing slideshow: {trigger.value} -> {direction.value}")
         
         # Check conditions for advancing
         if not self.is_running:
@@ -144,8 +132,6 @@ class SlideshowController:
         
         # NOTE: Timer cleanup is handled by _display_slide_with_timer() -> _cleanup_previous_slide_timers()
         # DO NOT call _stop_current_timer() here as it causes duplicate cleanup and orphaned threads
-        
-        self.logger.info(f"[ADVANCE] Slideshow advancement triggered by {trigger.value}, direction: {direction.value}")
         
         # Don't advance if paused (except for navigation keys/voice)
         if (self.is_paused and 
@@ -325,20 +311,13 @@ class SlideshowController:
             self.last_cache_check = time.time()
             
             # Start voice command service if available
-            self.logger.info(f"[VOICE-DEBUG] Checking voice service availability...")
-            self.logger.info(f"[VOICE-DEBUG] voice_service exists: {hasattr(self, 'voice_service')}")
-            if hasattr(self, 'voice_service'):
-                self.logger.info(f"[VOICE-DEBUG] voice_service.is_enabled: {self.voice_service.is_enabled}")
-                self.logger.info(f"[VOICE-DEBUG] voice_service.is_available(): {self.voice_service.is_available()}")
-            
             if self.voice_service.is_available():
-                self.logger.info(f"[VOICE-DEBUG] Attempting to start listening...")
                 if self.voice_service.start_listening():
                     self.logger.info("Voice commands enabled: say 'next', 'back', 'stop', or 'go'")
                 else:
                     self.logger.warning("Voice commands failed to start")
             else:
-                self.logger.warning("[VOICE-DEBUG] Voice service not available!")
+                self.logger.debug("Voice service not available")
             
             # Display first slide using single entry point
             self.advance_slideshow(TriggerType.STARTUP, Direction.NEXT)
@@ -479,13 +458,9 @@ class SlideshowController:
             self.current_slide = slide
             self.slideshow_timer = slide['slide_timer']
             
-            # TRACE: Debug logging for video display path
-            self.logger.info(f"[TRACE] _display_slide_with_timer called with slide type: {slide.get('type')}")
-            self.logger.info(f"[TRACE] About to call _display_slide_content")
-            
             # Display the slide content (photos/videos)
             result = self._display_slide_content(slide)
-            self.logger.info(f"[TRACE] _display_slide_content returned: {result}")
+            self.logger.debug(f"Displayed {slide.get('type')} slide: success={result}")
             
             # Add to history if it's a new slide (not from history navigation)
             if self.history_position == -1:
@@ -531,17 +506,13 @@ class SlideshowController:
     def _display_slide_content(self, slide: Dict[str, Any]) -> bool:
         """Display the actual slide content (photos/videos)."""
         slide_type = slide['type']
-        self.logger.info(f"[SLIDE-DEBUG] _display_slide_content called with slide_type: {slide_type}")
         
         try:
             if slide_type == 'portrait_pair':
-                self.logger.info(f"[SLIDE-DEBUG] Taking portrait_pair path")
                 return self._display_portrait_pair_content(slide)
             elif slide_type == 'video':
-                self.logger.info(f"[SLIDE-DEBUG] Taking video path - calling _display_video_content")
                 return self._display_video_content(slide)
             elif slide_type in ['landscape', 'single_portrait']:
-                self.logger.info(f"[SLIDE-DEBUG] Taking single photo path")
                 return self._display_single_photo_content(slide)
             else:
                 self.logger.error(f"[DISPLAY] Unknown slide type: {slide_type}")
@@ -558,59 +529,28 @@ class SlideshowController:
     
     def _cleanup_previous_slide_timers(self) -> None:
         """Clean up all timers from previous slide before starting new one."""
-        import threading
-        import time
-        cleanup_start = time.time()
-        thread_id = threading.current_thread().ident
-        
-        self.logger.info(f"[CLEANUP-START] Thread-{thread_id} at {cleanup_start:.3f}: Starting cleanup, current_timer_manager={self.current_timer_manager}")
+        self.logger.debug("Cleaning up previous slide timers")
         
         if self.current_timer_manager:
-            manager_id = getattr(self.current_timer_manager, 'manager_id', 'UNKNOWN')
-            countdown_thread = self.current_timer_manager.countdown_thread
-            countdown_alive = countdown_thread.is_alive() if countdown_thread else False
-            countdown_id = countdown_thread.ident if countdown_thread else None
-            
-            self.logger.info(f"[CLEANUP-DETAIL] Cleaning up {manager_id}, countdown_thread_alive={countdown_alive}, countdown_thread_id={countdown_id}")
-            
             # Cancel all timers (this includes join() which will wait)
             self.current_timer_manager.cancel_all_timers()
-            
-            cleanup_cancel_done = time.time()
-            self.logger.info(f"[CLEANUP-CANCEL] {manager_id} cancel_all_timers() completed in {(cleanup_cancel_done - cleanup_start)*1000:.1f}ms")
-            
             self.current_timer_manager = None
-            self.logger.info(f"[CLEANUP-NULLED] current_timer_manager set to None")
-        else:
-            self.logger.info(f"[CLEANUP-SKIP] No current_timer_manager to clean up")
         
         # Clear any advancement flags
         self.timer_advance_requested = False
         
         # Clear any paused timing state to ensure clean slate
         self.paused_remaining_time = None
-        
-        cleanup_end = time.time()
-        self.logger.info(f"[CLEANUP-COMPLETE] Cleanup finished in {(cleanup_end - cleanup_start)*1000:.1f}ms at {cleanup_end:.3f}")
     
     def _create_slide_timer_manager(self, slide: Dict[str, Any]) -> None:
         """Create timer manager for slide (always called regardless of pause state)."""
-        import threading
-        import time
-        create_start = time.time()
-        thread_id = threading.current_thread().ident
-        
-        self.logger.info(f"[CREATE-START] Thread-{thread_id} at {create_start:.3f}: Creating new timer manager")
-        
         # Create new timer manager for this slide (cleanup already done in _display_slide_with_timer)
         self.current_timer_manager = SlideTimerManager(self, self.logger)
-        manager_id = self.current_timer_manager.manager_id
         
         slide_timer = slide.get('slide_timer', 10)  # Default 10 seconds
         slide_type = slide.get('type', 'unknown')
         
-        create_end = time.time()
-        self.logger.info(f"[CREATE-COMPLETE] Created {manager_id} for {slide_type} slide in {(create_end - create_start)*1000:.1f}ms at {create_end:.3f}")
+        self.logger.debug(f"Created timer manager for {slide_type} slide ({slide_timer}s)")
         
         # Store slide info for potential timer start
         self._pending_slide_timer = slide_timer
@@ -754,12 +694,10 @@ class SlideshowController:
     
     def _display_video_content(self, slide: Dict[str, Any]) -> bool:
         """Display video content only (no timer logic)."""
-        self.logger.info(f"[TRACE] _display_video_content called!")
         try:
             video = slide['photos'][0]  # Videos are stored in photos array for consistency
             location_string = slide['location_string']
             slideshow_timer = slide['slide_timer']
-            self.logger.info(f"[TRACE] Video data extracted - filename: {video.get('filename', 'unknown')}")
             
             self.current_photo_pair = video
             self.logger.info(f"Displaying video: {video.get('filename', 'Unknown')}")
@@ -791,10 +729,7 @@ class SlideshowController:
             if video_path:
                 video_index = slide.get('photo_indices', [0])[0]
                 total_count = self.photo_manager.get_photo_count()
-                self.logger.info(f"[VIDEO-DEBUG] About to create overlays - video_index: {video_index}, total_count: {total_count}, location_string: '{location_string}'")
-                self.logger.info(f"[VIDEO-DEBUG] Video data keys: {list(video.keys())}")
                 overlays = self._create_video_overlays(video, video_index, total_count, location_string)
-                self.logger.info(f"[VIDEO-DEBUG] Created {len(overlays)} overlays: {[o.get('type') for o in overlays]}")
                 display_duration = slideshow_timer
                 
                 # Create completion callback to handle video completion
@@ -803,9 +738,7 @@ class SlideshowController:
                     # Videos don't use timer managers - advance directly
                     self._schedule_advancement_on_main_thread()
                 
-                self.logger.info(f"[VIDEO-DEBUG] Calling display_video with {len(overlays)} overlays")
                 success = self.display_manager.display_video(video_path, overlays, display_duration, video_completion_callback, video)
-                self.logger.info(f"[VIDEO-DEBUG] display_video returned: {success}")
                 
                 if success:
                     self.logger.info(f"[VIDEO] Successfully displayed video - duration: {slideshow_timer}s, slide_id: {slide_id}")

@@ -23,7 +23,7 @@ from slideshow_exceptions import SlideshowError, ConfigurationError
 
 def setup_logging(verbose: bool = False) -> None:
     """Setup logging configuration based on verbose setting."""
-    log_level = logging.DEBUG if verbose else logging.WARNING
+    log_level = logging.DEBUG if verbose else logging.INFO
     log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     
     logging.basicConfig(
