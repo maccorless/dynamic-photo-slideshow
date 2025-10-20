@@ -137,22 +137,20 @@ class SlideshowController:
         if (self.is_paused and 
             trigger not in [TriggerType.KEY_NEXT, TriggerType.KEY_PREVIOUS, 
                            TriggerType.VOICE_NEXT, TriggerType.VOICE_PREVIOUS]):
-            self.logger.info(f"[ADVANCE] Slideshow paused, ignoring {trigger.value}")
+            self.logger.debug(f"Slideshow paused, ignoring {trigger.value}")
             return False
         
         # Determine next slide (create new or get from history)
         slide = self._determine_next_slide(direction)
         if not slide:
-            self.logger.error("[ADVANCE] Failed to determine next slide")
+            self.logger.error("Failed to determine next slide")
             return False
         
         # 3. Display slide with timer setup (single responsibility)
         success = self._display_slide_with_timer(slide)
         
-        if success:
-            self.logger.info(f"[ADVANCE] Successfully advanced to {slide['type']} slide")
-        else:
-            self.logger.error("[ADVANCE] Failed to display slide")
+        if not success:
+            self.logger.error("Failed to display slide")
         
         # Unblock input after slide transition completes
         if hasattr(self, 'unblock_input'):
@@ -373,10 +371,10 @@ class SlideshowController:
             
             # Validate that the slide's photos still exist
             if self._validate_slide(slide):
-                self.logger.info(f"[SLIDE-HISTORY] Retrieved slide from history position {self.history_position}, type: {slide['type']}")
+                self.logger.debug(f"Retrieved slide from history position {self.history_position}, type: {slide['type']}")
                 return slide
             else:
-                self.logger.error(f"[SLIDE-HISTORY] Slide at position {self.history_position} contains invalid photos, skipping")
+                self.logger.error(f"Slide at position {self.history_position} contains invalid photos, skipping")
                 # Skip this invalid slide and try to move to next valid one
                 return None
         
@@ -397,28 +395,26 @@ class SlideshowController:
     
     def _create_new_slide(self) -> Optional[Dict[str, Any]]:
         """Create a new slide from a random photo or video."""
-        self.logger.info(f"[SLIDE-CREATION] Creating new slide, video_test_mode: {self.config.get('video_test_mode', False)}")
+        self.logger.debug(f"Creating new slide, video_test_mode: {self.config.get('video_test_mode', False)}")
         
         # Check if video test mode is enabled first to avoid photo flash
         if self.config.get('video_test_mode', False):
             test_video = self._get_test_video_if_applicable()
             if test_video:
-                self.logger.info(f"[SLIDE-CREATION] Using test video: {test_video.get('filename', 'unknown')}")
+                self.logger.debug(f"Using test video: {test_video.get('filename', 'unknown')}")
                 return self._create_slide_from_video(test_video, 0)
         
         # Normal slide creation logic
-        self.logger.info(f"[SLIDE-CREATION] Creating normal slide (not test video)")
         photo, photo_index = self._get_random_photo()
         if not photo:
             return None
         
         # Determine if this is a video or photo and create appropriate slide
         if self._is_video_content(photo):
-            self.logger.info(f"[SLIDE-CREATION] Random selection was video: {photo.get('filename', 'unknown')}")
+            self.logger.debug(f"Random selection was video: {photo.get('filename', 'unknown')}")
             # Use the cached video directly (respects same filter as photos)
             return self._create_slide_from_video(photo, photo_index)
         else:
-            self.logger.info(f"[SLIDE-CREATION] Creating photo slide: {photo.get('filename', 'unknown')}")
             return self._create_slide_from_photo(photo, photo_index)
     
     # ========================================
@@ -470,13 +466,9 @@ class SlideshowController:
             # Use the captured incoming_slide_id from before current_slide was updated
             current_slide_id = self.current_slide.get('slide_id') if self.current_slide else None
             
-            self.logger.info(f"[TIMER-MGR-CHECK] Slide ID check: incoming={incoming_slide_id}, current={current_slide_id}")
-            
             if incoming_slide_id and current_slide_id and incoming_slide_id != current_slide_id:
-                self.logger.info(f"[TIMER-MGR] Skipping timer creation - slide changed (was {incoming_slide_id}, now {current_slide_id})")
+                self.logger.debug(f"Skipping timer creation - slide changed")
                 return True
-            
-            self.logger.info(f"[TIMER-MGR-CHECK] Proceeding with timer creation (slide IDs match or not available)")
             
             # Timer creation - NEW: Always create timer manager regardless of pause state
             slide_type = slide.get('type', 'unknown')
@@ -488,12 +480,10 @@ class SlideshowController:
                 self._start_timer_manager()
             elif slide_type == 'video':
                 # Video will start timer when ready (handled by video display manager)
-                self.logger.info(f"[TIMER-MGR] Video slide - timer will start when video is ready")
+                self.logger.debug(f"Video slide - timer will start when ready")
             else:
                 # Slideshow is paused - timer manager created but not started
-                self.logger.info(f"[TIMER-MGR] Timer manager created but not started - slideshow is paused")
-            
-            self.logger.info(f"[DISPLAY] Successfully displayed {slide['type']} slide with timer")
+                self.logger.debug(f"Timer manager created but not started - paused")
             return True
             
         except (OSError, MemoryError) as e:
@@ -562,33 +552,28 @@ class SlideshowController:
             slide_timer = self._pending_slide_timer
             slide_type = self._pending_slide_type
             
-            self.logger.info(f"[TIMER-MGR] Starting {slide_timer}s timing for {slide_type} slide")
             self.current_timer_manager.start_slide_timing(slide_timer, slide_type)
-            self.logger.info(f"[TIMER-MGR] Timer manager started successfully for {slide_type} slide")
             
             # Clean up pending info
             delattr(self, '_pending_slide_timer')
             delattr(self, '_pending_slide_type')
         else:
-            self.logger.warning(f"[TIMER-MGR] Cannot start timer - manager: {self.current_timer_manager is not None}, pending: {hasattr(self, '_pending_slide_timer')}")
+            self.logger.warning(f"Cannot start timer - no manager or pending info")
     
     def _start_slide_timer_new(self, slide: Dict[str, Any]) -> None:
         """Legacy method - now routes to split create/start approach."""
         self._create_slide_timer_manager(slide)
         if self.is_playing:
             self._start_timer_manager()
-        else:
-            self.logger.info(f"[TIMER-MGR] Timer manager created but not started - slideshow is paused")
     
     def _pause_timer_new(self) -> None:
         """Pause timer using new SlideTimerManager (replaces _pause_timer)."""
         if self.current_timer_manager:
-            self.logger.info(f"[TIMER-MGR] Pausing current slide timer")
             remaining_time = self.current_timer_manager.pause_timing()
             self.paused_remaining_time = remaining_time
-            self.logger.info(f"[TIMER-MGR] Timer paused with {remaining_time:.1f}s remaining")
+            self.logger.debug(f"Timer paused with {remaining_time:.1f}s remaining")
         else:
-            self.logger.warning(f"[TIMER-MGR] No timer manager to pause")
+            self.logger.warning(f"No timer manager to pause")
             self.paused_remaining_time = 5.0  # Fallback
     
     def _resume_timer_new(self) -> None:
@@ -596,7 +581,7 @@ class SlideshowController:
         if self.current_timer_manager and self.paused_remaining_time is not None:
             # Resume existing paused timer
             slide_type = self.current_slide.get('type', 'unknown') if self.current_slide else 'unknown'
-            self.logger.info(f"[TIMER-MGR] Resuming timer with {self.paused_remaining_time:.1f}s remaining")
+            self.logger.debug(f"Resuming timer with {self.paused_remaining_time:.1f}s remaining")
             self.current_timer_manager.resume_timing(self.paused_remaining_time, slide_type)
             self.paused_remaining_time = None
         elif self.current_timer_manager and hasattr(self, '_pending_slide_timer'):
@@ -605,7 +590,7 @@ class SlideshowController:
             if self.current_slide:
                 current_slide_type = self.current_slide.get('type', 'unknown')
                 current_slide_timer = self.current_slide.get('slide_timer', 10)
-                self.logger.info(f"[TIMER-MGR] Starting timer for current slide: {current_slide_type} ({current_slide_timer}s)")
+                self.logger.debug(f"Starting timer for current slide: {current_slide_type} ({current_slide_timer}s)")
                 self.current_timer_manager.start_slide_timing(current_slide_timer, current_slide_type)
                 # Clean up pending info
                 if hasattr(self, '_pending_slide_timer'):
@@ -613,18 +598,15 @@ class SlideshowController:
                 if hasattr(self, '_pending_slide_type'):
                     delattr(self, '_pending_slide_type')
             else:
-                self.logger.warning(f"[TIMER-MGR] No current slide available for resume")
+                self.logger.warning(f"No current slide available for resume")
                 self._start_timer_manager()
         else:
-            self.logger.warning(f"[TIMER-MGR] Cannot resume - timer_manager: {self.current_timer_manager is not None}, remaining_time: {self.paused_remaining_time}, pending: {hasattr(self, '_pending_slide_timer') if hasattr(self, 'current_timer_manager') else False}")
+            self.logger.warning(f"Cannot resume timer - missing manager or timing info")
     
     def start_video_timer(self, slide: Dict[str, Any]) -> None:
         """Video timer start - NOT NEEDED since video completion callback handles advancement."""
-        if self.is_playing and slide:
-            self.logger.info(f"[TIMER-MGR] Video ready - but NOT starting timer (video completion callback will handle advancement)")
-            # DO NOT start timer manager for videos - video completion callback handles advancement
-        else:
-            self.logger.warning(f"[TIMER-MGR] Video not playing or no slide data")
+        if not self.is_playing or not slide:
+            self.logger.warning(f"Video not playing or no slide data")
     
     def _schedule_advancement_on_main_thread(self) -> None:
         """Schedule slideshow advancement on the main thread to avoid macOS threading issues."""
@@ -1183,7 +1165,7 @@ class SlideshowController:
         # Reset history position to indicate we're at the current slide
         self.history_position = -1
         
-        self.logger.info(f"[SLIDE-HISTORY] Added slide to history. History length: {len(self.slide_history)}, type: {slide['type']}")
+        self.logger.debug(f"Added slide to history. History length: {len(self.slide_history)}, type: {slide['type']}")
     
     def _add_to_history(self, photo_data) -> None:
         """Legacy method - kept for compatibility during transition."""
@@ -1194,39 +1176,32 @@ class SlideshowController:
     def _navigate_to_random(self) -> None:
         """Navigate to a new random slide (exit history mode)."""
         self.history_position = -1
-        self.logger.info("[NAVIGATION] Navigating to new random slide")
+        self.logger.debug("Navigating to new random slide")
     
     def _navigate_previous(self) -> bool:
         """Navigate to previous slide in history. Returns True if navigation was successful."""
-        self.logger.info(f"[NAV-DEBUG] ===== NAVIGATE PREVIOUS ======")
-        self.logger.info(f"[NAV-DEBUG] History length: {len(self.slide_history)}")
-        self.logger.info(f"[NAV-DEBUG] Current position: {self.history_position}")
-        self.logger.info(f"[NAV-DEBUG] Current slide ID: {getattr(self.current_slide, 'slide_id', 'unknown') if self.current_slide else 'None'}")
-        
-        self.logger.info(f"[NAVIGATION] Previous requested - history_length: {len(self.slide_history)}, current_position: {self.history_position}")
-        
         if not self.slide_history:
-            self.logger.info("[NAVIGATION] No slide history available - cannot go back")
+            self.logger.debug("No slide history available - cannot go back")
             return False
         
         # If we're at the current slide, start from the one before the last item in history
         if self.history_position == -1:
             # Need at least two slides in history to go back
             if len(self.slide_history) < 2:
-                self.logger.info("[NAVIGATION] Need at least 2 slides in history to go back")
+                self.logger.debug("Need at least 2 slides in history to go back")
                 return False
             self.history_position = len(self.slide_history) - 2
-            self.logger.info(f"[NAVIGATION] Moving to slide history position {self.history_position}")
+            self.logger.debug(f"Moving to slide history position {self.history_position}")
         # Otherwise, move back in history
         elif self.history_position > 0:
             self.history_position -= 1
-            self.logger.info(f"[NAVIGATION] Moving back to slide history position {self.history_position}")
+            self.logger.debug(f"Moving back to slide history position {self.history_position}")
         else:
             # Already at the oldest slide in history
-            self.logger.info("[NAVIGATION] Already at oldest slide in history")
+            self.logger.debug("Already at oldest slide in history")
             return False
         
-        self.logger.info(f"[NAVIGATION] Successfully navigated to slide history position {self.history_position}")
+        self.logger.debug(f"Successfully navigated to slide history position {self.history_position}")
         return True
     
     def _navigate_next(self) -> None:
@@ -1236,14 +1211,14 @@ class SlideshowController:
             if self.history_position < len(self.slide_history) - 1:
                 # Move forward in history
                 self.history_position += 1
-                self.logger.info(f"[NAVIGATION] Moving forward to slide history position {self.history_position}")
+                self.logger.debug(f"Moving forward to slide history position {self.history_position}")
             else:
                 # At the end of history, generate new slide
                 self.history_position = -1
-                self.logger.info("[NAVIGATION] At end of slide history, will generate new slide")
+                self.logger.debug("At end of slide history, will generate new slide")
         else:
             # Normal mode, generate new slide (history_position stays at -1)
-            self.logger.info("[NAVIGATION] Normal mode, will generate new slide")
+            pass
     
     def _handle_key_event(self, event) -> None:
         """Handle keyboard input."""
@@ -1251,21 +1226,15 @@ class SlideshowController:
             key = event.keysym.lower()
             current_time = time.time()
             
-            self.logger.info(f"[KEY-DEBUG] ===== KEY PRESSED ======")
-            self.logger.info(f"[KEY-DEBUG] Key: {key}")
-            self.logger.info(f"[KEY-DEBUG] Current time: {current_time:.3f}")
-            self.logger.info(f"[KEY-DEBUG] History position: {self.history_position}")
-            self.logger.info(f"[KEY-DEBUG] History length: {len(self.slide_history)}")
+            self.logger.debug(f"Key pressed: {key}")
             
             if key == 'escape':
                 self._stop_slideshow()
             elif key == 'space':
                 self.toggle_pause()  # Use same method as voice commands
             elif key == 'left':
-                self.logger.info(f"[KEY-DEBUG] LEFT arrow pressed - calling previous_photo()")
                 self.previous_photo()  # Use same method as voice commands
             elif key == 'right':
-                self.logger.info(f"[KEY-DEBUG] RIGHT arrow pressed - calling next_photo()")
                 self.next_photo()  # Use same method as voice commands
             elif key == 'shift_l' or key == 'shift_r':
                 self._toggle_filename_display()

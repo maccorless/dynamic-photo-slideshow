@@ -1242,23 +1242,15 @@ class PygameDisplayManager:
             
             # Validate pygame screen is initialized
             if not self.screen or not pygame.display.get_surface():
-                self.logger.warning(f"[COUNTDOWN-DISPLAY] Screen not initialized, skipping countdown")
                 return
             
-            # Add detailed debugging for countdown display calls
-            import threading
-            thread_id = threading.current_thread().ident
-            self.logger.info(f"[COUNTDOWN-DISPLAY] {manager_id} Thread-{thread_id}: show_countdown({remaining_seconds}s) called, last_countdown: {self._last_countdown}")
-            
             if remaining_seconds <= 0:
-                self.logger.info(f"[COUNTDOWN-DISPLAY] {manager_id} Thread-{thread_id}: Skipping display - remaining_seconds <= 0")
                 return
             
             # Use thread lock to prevent concurrent surface operations
             with self._surface_lock:
                 # Validate surface again inside lock
                 if not self.screen or not pygame.display.get_surface():
-                    self.logger.warning(f"[COUNTDOWN-DISPLAY] Screen lost during lock acquisition")
                     return
                 
                 # Only update countdown text when value changes to prevent flicker
@@ -1270,7 +1262,7 @@ class PygameDisplayManager:
                             clear_rect = self._countdown_rect.inflate(10, 10)
                             pygame.draw.rect(self.screen, self.BLACK, clear_rect)
                         except pygame.error as e:
-                            self.logger.warning(f"[COUNTDOWN-DISPLAY] Error clearing countdown rect: {e}")
+                            self.logger.debug(f"Error clearing countdown rect: {e}")
                             self._countdown_rect = None
                     
                     countdown_text = f"{remaining_seconds}s"
@@ -1279,7 +1271,7 @@ class PygameDisplayManager:
                         self._countdown_rect = self._countdown_text.get_rect(topright=(self.screen_width - 50, 50))
                         self._last_countdown = remaining_seconds
                     except pygame.error as e:
-                        self.logger.error(f"[COUNTDOWN-DISPLAY] Error rendering countdown text: {e}")
+                        self.logger.error(f"Error rendering countdown text: {e}")
                         self._reset_countdown_state()
                         return
                 
@@ -1295,17 +1287,16 @@ class PygameDisplayManager:
                         
                         # Only call flip() for photos (videos handle their own display updates)
                         video_state = getattr(self, 'video_playing', False)
-                        self.logger.info(f"[COUNTDOWN-DEBUG] video_playing state: {video_state}, calling flip: {not video_state}")
                         if not video_state:
                             pygame.display.flip()
                     except pygame.error as e:
-                        self.logger.error(f"[COUNTDOWN-DISPLAY] Error blitting countdown: {e}")
+                        self.logger.error(f"Error blitting countdown: {e}")
                         self._reset_countdown_state()
                 
         except Exception as e:
-            self.logger.error(f"[COUNTDOWN-DISPLAY] Unexpected error showing countdown: {e}")
+            self.logger.error(f"Unexpected error showing countdown: {e}")
             import traceback
-            self.logger.error(f"[COUNTDOWN-DISPLAY] Traceback: {traceback.format_exc()}")
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
     
     def clear_countdown_timer(self) -> None:
         """Clear countdown timer overlay and reset state (thread-safe)."""

@@ -71,20 +71,17 @@ class PygameSlideshowController:
         """Block all input during state transitions."""
         self.input_blocked = True
         self.input_block_reason = reason
-        self.logger.info(f"[INPUT-BLOCK] Input blocked: {reason}")
+        self.logger.debug(f"Input blocked: {reason}")
     
     def unblock_input(self) -> None:
         """Unblock input after state transition completes."""
-        if self.input_blocked:
-            self.logger.info(f"[INPUT-UNBLOCK] Input unblocked (was: {self.input_block_reason})")
-        
         # Add 50ms delay to ensure countdown thread's first flip() completes
         # This prevents race condition where input is processed in same millisecond as unblock
         time.sleep(0.05)  # 50ms delay
         
         self.input_blocked = False
         self.input_block_reason = None
-        self.logger.debug(f"[INPUT-UNBLOCK] Input ready after 50ms safety delay")
+        self.logger.debug(f"Input unblocked")
     
     def _open_settings(self) -> None:
         """Open settings window (pause slideshow first)."""
@@ -134,7 +131,7 @@ class PygameSlideshowController:
                 elif event.type == pygame.KEYDOWN:
                     # Check if input is blocked
                     if self.input_blocked:
-                        self.logger.debug(f"[INPUT-BLOCK] Keyboard event ignored: {self.input_block_reason}")
+                        self.logger.debug(f"Keyboard event ignored: {self.input_block_reason}")
                         continue
                     # Handle ESC key for immediate exit
                     if event.key == pygame.K_ESCAPE:
@@ -173,7 +170,7 @@ class PygameSlideshowController:
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     # Check if input is blocked
                     if self.input_blocked:
-                        self.logger.debug(f"[INPUT-BLOCK] Mouse event ignored: {self.input_block_reason}")
+                        self.logger.debug(f"Mouse event ignored: {self.input_block_reason}")
                         continue
                     
                     # Handle mouse button clicks and scroll wheel
