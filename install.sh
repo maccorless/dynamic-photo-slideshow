@@ -7,7 +7,7 @@ set -e  # Exit on error
 INSTALL_DIR="/Applications/PhotoSlideshow"
 REPO_URL="https://github.com/maccorless/dynamic-photo-slideshow.git"
 BRANCH="photo-video-voice"
-REQUIRED_PYTHON_VERSION="3.9"
+REQUIRED_PYTHON_VERSION="3.10"
 
 echo "========================================"
 echo "Photo Slideshow - Clean Installation"
@@ -38,7 +38,12 @@ if command -v python3 &> /dev/null; then
         echo "   ✅ Python version is sufficient"
     else
         echo "   ❌ Python $PYTHON_VERSION is too old (need $REQUIRED_PYTHON_VERSION+)"
-        echo "   Please install Python $REQUIRED_PYTHON_VERSION or newer from python.org"
+        echo ""
+        echo "   The osxphotos library requires Python 3.10+ for modern type hints"
+        echo ""
+        echo "   Please install Python 3.10 or newer:"
+        echo "   • Download from: https://www.python.org/downloads/"
+        echo "   • Or via Homebrew: brew install python@3.11"
         exit 1
     fi
 else

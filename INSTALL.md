@@ -22,7 +22,7 @@ This downloads the installation script directly from GitHub.
 ```
 
 The installer will:
-- ✅ Check for Python 3.9+ (guide you to install if missing)
+- ✅ Check for Python 3.10+ (guide you to install if missing)
 - ✅ Check for git (guide you to install if missing)
 - ✅ Clone the repository to `/Applications/PhotoSlideshow`
 - ✅ Create a virtual environment
@@ -60,15 +60,17 @@ cd /Applications/PhotoSlideshow
 
 ## Prerequisites
 
-### Python 3.9+
+### Python 3.10+
+
+**Why 3.10+?** The osxphotos library uses modern type hints that require Python 3.10 or newer.
 
 **Check if installed:**
 ```bash
 python3 --version
 ```
 
-**If not installed:**
-- Download from [python.org](https://www.python.org/downloads/)
+**If version is too old (3.9 or earlier):**
+- Download Python 3.11+ from [python.org](https://www.python.org/downloads/)
 - Or install via Homebrew: `brew install python@3.11`
 
 ### Git
@@ -175,12 +177,26 @@ mv ~/photo_slideshow_config.json ~/.photo_slideshow_config.json
 
 ## Troubleshooting
 
-### "Python not found"
+### "Python not found" or "Python version too old"
 
-Install Python 3.9+:
+The app requires Python 3.10+ (osxphotos uses modern type hints).
+
+**Install Python 3.11:**
 ```bash
+# Via Homebrew (recommended)
 brew install python@3.11
+
 # Or download from python.org
+open https://www.python.org/downloads/
+```
+
+**After installing, you may need to use python3.11 explicitly:**
+```bash
+# Check version
+python3.11 --version
+
+# If python3 still points to old version, create alias
+alias python3=python3.11
 ```
 
 ### "git not found"
