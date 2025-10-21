@@ -465,7 +465,16 @@ class SlideshowController:
             
             # Display the slide content (photos/videos)
             result = self._display_slide_content(slide)
-            self.logger.debug(f"Displayed {slide.get('type')} slide: success={result}")
+            slide_type = slide.get('type', 'unknown')
+            self.logger.info(f"[DISPLAY] Displayed {slide_type} slide: success={result}")
+            
+            # CRITICAL: If display failed (especially for videos), skip to next slide
+            if not result:
+                self.logger.error(f"[DISPLAY] Failed to display {slide_type} slide - advancing to next")
+                # Schedule advancement to next slide immediately
+                if self.is_playing:
+                    self._schedule_advancement_on_main_thread()
+                return False
             
             # Add to history if it's a new slide (not from history navigation)
             if self.history_position == -1:
@@ -479,11 +488,10 @@ class SlideshowController:
             current_slide_id = self.current_slide.get('slide_id') if self.current_slide else None
             
             if incoming_slide_id and current_slide_id and incoming_slide_id != current_slide_id:
-                self.logger.debug(f"Skipping timer creation - slide changed")
+                self.logger.info(f"[TIMER-MGR-CHECK] Skipping timer creation - slide changed")
                 return True
             
             # Timer creation - NEW: Always create timer manager regardless of pause state
-            slide_type = slide.get('type', 'unknown')
             self._create_slide_timer_manager(slide)
             
             # Start timer only if playing and not video (videos start their own timers)
@@ -492,10 +500,10 @@ class SlideshowController:
                 self._start_timer_manager()
             elif slide_type == 'video':
                 # Video will start timer when ready (handled by video display manager)
-                self.logger.debug(f"Video slide - timer will start when ready")
+                self.logger.info(f"[TIMER-MGR] Video slide - timer will start when ready")
             else:
                 # Slideshow is paused - timer manager created but not started
-                self.logger.debug(f"Timer manager created but not started - paused")
+                self.logger.info(f"[TIMER-MGR] Timer manager created but not started - paused")
             return True
             
         except (OSError, MemoryError) as e:
