@@ -29,24 +29,38 @@ version_ge() {
 
 # Check for Python 3
 echo "🐍 Checking for Python 3..."
-if command -v python3 &> /dev/null; then
+
+# Try python3.13 first, then python3
+PYTHON_CMD=""
+if command -v python3.13 &> /dev/null; then
+    PYTHON_CMD="python3.13"
+    PYTHON_VERSION=$(python3.13 --version | cut -d' ' -f2)
+    echo "   Found python3.13: $PYTHON_VERSION"
+elif command -v python3 &> /dev/null; then
     PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
-    echo "   Found Python $PYTHON_VERSION"
+    echo "   Found python3: $PYTHON_VERSION"
     
     if version_ge "$PYTHON_VERSION" "$REQUIRED_PYTHON_VERSION"; then
         PYTHON_CMD="python3"
-        echo "   ✅ Python version is sufficient"
     else
         echo "   ❌ Python $PYTHON_VERSION is too old (need $REQUIRED_PYTHON_VERSION+)"
         echo ""
-        echo "   This application requires Python 3.13 or newer"
+        echo "   You have Python $PYTHON_VERSION, but need 3.13+"
         echo ""
-        echo "   Please install Python 3.13+:"
-        echo "   • Download from: https://www.python.org/downloads/"
-        echo "   • Or via Homebrew: brew install python@3.13"
+        # Check if python3.13 exists but wasn't found in PATH
+        if [ -f "/usr/local/bin/python3.13" ] || [ -f "/opt/homebrew/bin/python3.13" ]; then
+            echo "   Python 3.13 appears to be installed but not in PATH"
+            echo "   Try running with full path or update your PATH"
+        else
+            echo "   Please install Python 3.13+:"
+            echo "   • Download from: https://www.python.org/downloads/"
+            echo "   • Or via Homebrew: brew install python@3.13"
+        fi
         exit 1
     fi
-else
+fi
+
+if [ -z "$PYTHON_CMD" ]; then
     echo "   ❌ Python 3 not found"
     echo ""
     echo "Please install Python 3.13+ from:"
@@ -56,6 +70,8 @@ else
     echo "   brew install python@3.13"
     exit 1
 fi
+
+echo "   ✅ Using $PYTHON_CMD (version $PYTHON_VERSION)"
 
 # Check for git
 echo "📦 Checking for git..."
