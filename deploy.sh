@@ -12,14 +12,24 @@ if [ -d ".git" ]; then
     echo "📁 Existing repository detected. Pulling latest changes..."
     git checkout photo-video-voice
     git pull origin photo-video-voice
+    echo "✅ Repository updated successfully"
 else
-    echo "📥 Cloning repository from GitHub..."
-    REPO_URL="https://github.com/maccorless/dynamic-photo-slideshow.git"
-    git clone -b photo-video-voice $REPO_URL temp_repo
-    mv temp_repo/* .
-    mv temp_repo/.git .
-    rm -rf temp_repo
-    echo "✅ Repository cloned successfully"
+    echo "❌ Error: Not in a git repository"
+    echo ""
+    echo "Please run one of these commands first:"
+    echo ""
+    echo "Option 1 - Clone the repository:"
+    echo "  git clone -b photo-video-voice https://github.com/maccorless/dynamic-photo-slideshow.git"
+    echo "  cd dynamic-photo-slideshow"
+    echo "  ./deploy.sh"
+    echo ""
+    echo "Option 2 - If you already have the files, initialize git:"
+    echo "  git init"
+    echo "  git remote add origin https://github.com/maccorless/dynamic-photo-slideshow.git"
+    echo "  git fetch origin photo-video-voice"
+    echo "  git checkout photo-video-voice"
+    echo ""
+    exit 1
 fi
 
 # Set up config file
