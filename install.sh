@@ -32,10 +32,22 @@ echo "🐍 Checking for Python 3..."
 
 # Try python3.13 first, then python3
 PYTHON_CMD=""
+
+# Check for python3.13 in PATH
 if command -v python3.13 &> /dev/null; then
     PYTHON_CMD="python3.13"
     PYTHON_VERSION=$(python3.13 --version | cut -d' ' -f2)
     echo "   Found python3.13: $PYTHON_VERSION"
+# Check Homebrew locations directly (may not be in PATH)
+elif [ -x "/opt/homebrew/bin/python3.13" ]; then
+    PYTHON_CMD="/opt/homebrew/bin/python3.13"
+    PYTHON_VERSION=$(/opt/homebrew/bin/python3.13 --version | cut -d' ' -f2)
+    echo "   Found python3.13 in Homebrew: $PYTHON_VERSION"
+elif [ -x "/usr/local/bin/python3.13" ]; then
+    PYTHON_CMD="/usr/local/bin/python3.13"
+    PYTHON_VERSION=$(/usr/local/bin/python3.13 --version | cut -d' ' -f2)
+    echo "   Found python3.13 in /usr/local: $PYTHON_VERSION"
+# Fall back to python3
 elif command -v python3 &> /dev/null; then
     PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
     echo "   Found python3: $PYTHON_VERSION"
