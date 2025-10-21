@@ -9,6 +9,6 @@ opencv-python>=4.8.0
 moviepy>=1.0.3
 imageio>=2.31.0
 # Pygame display dependencies
-pygame>=2.5.0
+pygame>=2.7.0
 pyvidplayer2>=0.9.18
 pygame-gui>=0.6.9
