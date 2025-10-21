@@ -22,7 +22,7 @@ This downloads the installation script directly from GitHub.
 ```
 
 The installer will:
-- ✅ Check for Python 3.13+ (guide you to install if missing)
+- ✅ Check for Python 3.11-3.12 (guide you to install if missing)
 - ✅ Check for git (guide you to install if missing)
 - ✅ Clone the repository to `/Applications/PhotoSlideshow`
 - ✅ Create a virtual environment
@@ -60,16 +60,18 @@ cd /Applications/PhotoSlideshow
 
 ## Prerequisites
 
-### Python 3.13+
+### Python 3.11 or 3.12
+
+**Why not 3.13?** pygame 2.7+ wheels are not yet available for Python 3.13 on macOS ARM64.
 
 **Check if installed:**
 ```bash
 python3 --version
 ```
 
-**If version is too old (3.12 or earlier):**
-- Download Python 3.13+ from [python.org](https://www.python.org/downloads/)
-- Or install via Homebrew: `brew install python@3.13`
+**If version is wrong:**
+- Download Python 3.12 from [python.org](https://www.python.org/downloads/)
+- Or install via Homebrew: `brew install python@3.12`
 
 ### Git
 
@@ -175,27 +177,21 @@ mv ~/photo_slideshow_config.json ~/.photo_slideshow_config.json
 
 ## Troubleshooting
 
-### "Python not found" or "Python version too old"
+### "Python not found" or "Python version wrong"
 
-The app requires Python 3.13+.
+The app requires Python 3.11 or 3.12 (not 3.13 yet - pygame wheels unavailable).
 
-**Install Python 3.13:**
+**Install Python 3.12:**
 ```bash
 # Via Homebrew (recommended)
-brew install python@3.13
+brew install python@3.12
 
 # Or download from python.org
 open https://www.python.org/downloads/
 ```
 
-**After installing, you may need to use python3.13 explicitly:**
-```bash
-# Check version
-python3.13 --version
-
-# If python3 still points to old version, create alias
-alias python3=python3.13
-```
+**If you have Python 3.13:**
+You need to install Python 3.12 alongside it. The installer will find and use 3.12 automatically.
 
 ### "git not found"
 

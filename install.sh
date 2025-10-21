@@ -7,7 +7,8 @@ set -e  # Exit on error
 INSTALL_DIR="/Applications/PhotoSlideshow"
 REPO_URL="https://github.com/maccorless/dynamic-photo-slideshow.git"
 BRANCH="photo-video-voice"
-REQUIRED_PYTHON_VERSION="3.13"
+REQUIRED_PYTHON_VERSION="3.11"
+MAX_PYTHON_VERSION="3.12.99"
 
 echo "========================================"
 echo "Photo Slideshow - Clean Installation"
@@ -33,53 +34,67 @@ echo "🐍 Checking for Python 3..."
 # Try python3.13 first, then python3
 PYTHON_CMD=""
 
-# Check for python3.13 in PATH
-if command -v python3.13 &> /dev/null; then
-    PYTHON_CMD="python3.13"
-    PYTHON_VERSION=$(python3.13 --version | cut -d' ' -f2)
-    echo "   Found python3.13: $PYTHON_VERSION"
+# Check for python3.12 in PATH first (best compatibility with pygame)
+if command -v python3.12 &> /dev/null; then
+    PYTHON_CMD="python3.12"
+    PYTHON_VERSION=$(python3.12 --version | cut -d' ' -f2)
+    echo "   Found python3.12: $PYTHON_VERSION"
 # Check Homebrew locations directly (may not be in PATH)
-elif [ -x "/opt/homebrew/bin/python3.13" ]; then
-    PYTHON_CMD="/opt/homebrew/bin/python3.13"
-    PYTHON_VERSION=$(/opt/homebrew/bin/python3.13 --version | cut -d' ' -f2)
-    echo "   Found python3.13 in Homebrew: $PYTHON_VERSION"
-elif [ -x "/usr/local/bin/python3.13" ]; then
-    PYTHON_CMD="/usr/local/bin/python3.13"
-    PYTHON_VERSION=$(/usr/local/bin/python3.13 --version | cut -d' ' -f2)
-    echo "   Found python3.13 in /usr/local: $PYTHON_VERSION"
-# Fall back to python3
+elif [ -x "/opt/homebrew/bin/python3.12" ]; then
+    PYTHON_CMD="/opt/homebrew/bin/python3.12"
+    PYTHON_VERSION=$(/opt/homebrew/bin/python3.12 --version | cut -d' ' -f2)
+    echo "   Found python3.12 in Homebrew: $PYTHON_VERSION"
+elif [ -x "/usr/local/bin/python3.12" ]; then
+    PYTHON_CMD="/usr/local/bin/python3.12"
+    PYTHON_VERSION=$(/usr/local/bin/python3.12 --version | cut -d' ' -f2)
+    echo "   Found python3.12 in /usr/local: $PYTHON_VERSION"
+# Check for python3.11
+elif command -v python3.11 &> /dev/null; then
+    PYTHON_CMD="python3.11"
+    PYTHON_VERSION=$(python3.11 --version | cut -d' ' -f2)
+    echo "   Found python3.11: $PYTHON_VERSION"
+elif [ -x "/opt/homebrew/bin/python3.11" ]; then
+    PYTHON_CMD="/opt/homebrew/bin/python3.11"
+    PYTHON_VERSION=$(/opt/homebrew/bin/python3.11 --version | cut -d' ' -f2)
+    echo "   Found python3.11 in Homebrew: $PYTHON_VERSION"
+elif [ -x "/usr/local/bin/python3.11" ]; then
+    PYTHON_CMD="/usr/local/bin/python3.11"
+    PYTHON_VERSION=$(/usr/local/bin/python3.11 --version | cut -d' ' -f2)
+    echo "   Found python3.11 in /usr/local: $PYTHON_VERSION"
+# Fall back to python3 and check version
 elif command -v python3 &> /dev/null; then
     PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
     echo "   Found python3: $PYTHON_VERSION"
     
     if version_ge "$PYTHON_VERSION" "$REQUIRED_PYTHON_VERSION"; then
+        # Check if version is too new (>3.12)
+        if version_ge "$PYTHON_VERSION" "3.13"; then
+            echo "   ⚠️  Python $PYTHON_VERSION is too new (pygame 2.7+ not available for Python 3.13 yet)"
+            echo ""
+            echo "   Please install Python 3.11 or 3.12:"
+            echo "   • Via Homebrew: brew install python@3.12"
+            echo "   • Or download from: https://www.python.org/downloads/"
+            exit 1
+        fi
         PYTHON_CMD="python3"
     else
-        echo "   ❌ Python $PYTHON_VERSION is too old (need $REQUIRED_PYTHON_VERSION+)"
+        echo "   ❌ Python $PYTHON_VERSION is too old (need $REQUIRED_PYTHON_VERSION-$MAX_PYTHON_VERSION)"
         echo ""
-        echo "   You have Python $PYTHON_VERSION, but need 3.13+"
-        echo ""
-        # Check if python3.13 exists but wasn't found in PATH
-        if [ -f "/usr/local/bin/python3.13" ] || [ -f "/opt/homebrew/bin/python3.13" ]; then
-            echo "   Python 3.13 appears to be installed but not in PATH"
-            echo "   Try running with full path or update your PATH"
-        else
-            echo "   Please install Python 3.13+:"
-            echo "   • Download from: https://www.python.org/downloads/"
-            echo "   • Or via Homebrew: brew install python@3.13"
-        fi
+        echo "   Please install Python 3.11 or 3.12:"
+        echo "   • Via Homebrew: brew install python@3.12"
+        echo "   • Or download from: https://www.python.org/downloads/"
         exit 1
     fi
 fi
 
 if [ -z "$PYTHON_CMD" ]; then
-    echo "   ❌ Python 3 not found"
+    echo "   ❌ Python 3.11 or 3.12 not found"
     echo ""
-    echo "Please install Python 3.13+ from:"
-    echo "   https://www.python.org/downloads/"
+    echo "Please install Python 3.11 or 3.12:"
+    echo "   • Via Homebrew: brew install python@3.12"
+    echo "   • Or download from: https://www.python.org/downloads/"
     echo ""
-    echo "Or using Homebrew:"
-    echo "   brew install python@3.13"
+    echo "Note: Python 3.13 is not yet supported due to pygame wheel availability"
     exit 1
 fi
 
