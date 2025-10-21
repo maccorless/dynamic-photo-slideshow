@@ -6,6 +6,7 @@ Handles timing, navigation, and coordination between components.
 import json
 import logging
 import os
+import subprocess
 import sys
 import time
 import random
@@ -96,7 +97,7 @@ class SlideshowController:
         # Slide history cache for previous navigation
         self.slide_history = []
         self.history_position = -1
-        self.max_history = config.get('photo_history_cache_size', 100)
+        self.max_history = config.get('NAV_HISTORY_SIZE', 100)
         
         # Timer advancement flag for main thread processing (macOS compatibility)
         self.timer_advance_requested = False
@@ -110,6 +111,11 @@ class SlideshowController:
         
         # Current slide being displayed
         self.current_slide = None
+        
+        # Statistics tracking
+        self.stats_total_slides = 0
+        self.stats_photos_displayed = 0
+        self.stats_videos_displayed = 0
     
     # ========================================
     # SINGLE ENTRY POINT - All advancement goes through here
@@ -247,7 +253,7 @@ class SlideshowController:
                 return duration
             else:
                 self.logger.warning(f"Could not get duration for {video_path}: {result.stderr}")
-                return self.config.get('VIDEO_MAX_DURATION', 15)  # Fallback to config
+                return self.config.get('VIDEO_MAX_TIMER', 15)  # Fallback to config
                 
         except Exception as e:
             self.logger.error(f"Error getting video duration for {video_path}: {e}")
@@ -262,7 +268,7 @@ class SlideshowController:
                 if file_path.lower().endswith(('.mp4', '.mov', '.avi', '.mkv', '.m4v')):
                     # Get actual video duration
                     video_duration = self._get_video_duration(file_path)
-                    config_max = self.config.get('VIDEO_MAX_DURATION', 15)
+                    config_max = self.config.get('VIDEO_MAX_TIMER', 15)
                     
                     # Use minimum of video duration and config max
                     calculated_duration = min(int(video_duration), config_max)
@@ -277,19 +283,19 @@ class SlideshowController:
                         if file_path.lower().endswith(('.mp4', '.mov', '.avi', '.mkv', '.m4v')):
                             # If any item in pair is video, treat as video
                             video_duration = self._get_video_duration(file_path)
-                            config_max = self.config.get('VIDEO_MAX_DURATION', 15)
+                            config_max = self.config.get('VIDEO_MAX_TIMER', 15)
                             calculated_duration = min(int(video_duration), config_max)
                             self.logger.debug(f"Mixed content slideshow timer: {calculated_duration}s")
                             return calculated_duration
             
             # Default to photo slideshow interval for photos
-            photo_duration = self.config.get('SLIDESHOW_INTERVAL', 10)
+            photo_duration = self.config.get('PHOTO_TIMER', 10)
             self.logger.debug(f"Photo slideshow timer: {photo_duration}s")
             return photo_duration
             
         except Exception as e:
             self.logger.error(f"Error calculating slideshow timer: {e}")
-            return self.config.get('SLIDESHOW_INTERVAL', 10)  # Safe fallback
+            return self.config.get('PHOTO_TIMER', 10)  # Safe fallback
     
     
     def start_slideshow(self) -> None:
@@ -303,7 +309,7 @@ class SlideshowController:
                 self.logger.error("No photos available for slideshow")
                 return
             
-            self.logger.info(f"Starting slideshow with {photo_count} photos")
+            self.logger.debug(f"Slideshow ready - {photo_count} photos loaded")
             self.is_running = True
             self.is_playing = True  # Set playing state to True when slideshow starts
             self.last_cache_check = time.time()
@@ -330,6 +336,10 @@ class SlideshowController:
     def stop(self) -> None:
         """Stop the slideshow and cleanup resources."""
         self.logger.info("Stopping slideshow...")
+        
+        # Log statistics summary
+        self.logger.info(f"Session Summary: {self.stats_total_slides} slides displayed ({self.stats_photos_displayed} photos, {self.stats_videos_displayed} videos)")
+        
         self.is_running = False
         self.is_playing = False
         
@@ -460,6 +470,9 @@ class SlideshowController:
             # Add to history if it's a new slide (not from history navigation)
             if self.history_position == -1:
                 self._add_slide_to_history(slide)
+            
+            # Track statistics
+            self.stats_total_slides += 1
             
             # Timer creation - Check we're still on this slide (prevents race condition with async video display)
             # Use the captured incoming_slide_id from before current_slide was updated
@@ -639,6 +652,9 @@ class SlideshowController:
             
             # Display the photo pair
             self.display_manager.display_photo(photos, location_string, slideshow_timer)
+            
+            # Track statistics - portrait pair counts as 2 photos
+            self.stats_photos_displayed += 2
             return True
             
         except Exception as e:
@@ -661,6 +677,9 @@ class SlideshowController:
             
             # Display the photo
             self.display_manager.display_photo(photo, location_string, slideshow_timer)
+            
+            # Track statistics - single photo
+            self.stats_photos_displayed += 1
             return True
             
         except Exception as e:
@@ -714,7 +733,9 @@ class SlideshowController:
                 success = self.display_manager.display_video(video_path, overlays, display_duration, video_completion_callback, video)
                 
                 if success:
-                    self.logger.debug(f"Successfully displayed video - duration: {slideshow_timer}s, slide_id: {slide_id}")
+                    self.logger.debug(f"Successfully displayed video: {video_path}")
+                    # Track statistics - video displayed
+                    self.stats_videos_displayed += 1
                     return True
                 else:
                     self.logger.error(f"Failed to display video: {video_path}")
@@ -960,32 +981,32 @@ class SlideshowController:
     def _create_video_overlays(self, video: Dict[str, Any], video_index: int, total_count: int, location_string: str) -> List[Dict[str, Any]]:
         """Create overlay information for video display (matching photo overlay format)."""
         overlays = []
-        self.logger.info(f"[VIDEO-OVERLAY-CREATE] Creating overlays for video: {video.get('filename', 'unknown')}")
-        self.logger.info(f"[VIDEO-OVERLAY-CREATE] Video date_taken: {video.get('date_taken')}")
-        self.logger.info(f"[VIDEO-OVERLAY-CREATE] Location string: {location_string}")
+        self.logger.debug(f"[VIDEO-OVERLAY-CREATE] Creating overlays for video: {video.get('filename', 'unknown')}")
+        self.logger.debug(f"[VIDEO-OVERLAY-CREATE] Video date_taken: {video.get('date_taken')}")
+        self.logger.debug(f"[VIDEO-OVERLAY-CREATE] Location string: {location_string}")
         
-        # Add date overlay if available (same as photos)
-        if video.get('date_taken'):
+        # Add date overlay if available and enabled (same as photos)
+        if self.config.get('show_date_overlay', True) and video.get('date_taken'):
             date_str = video['date_taken'].strftime('%B %d, %Y')
             overlays.append({
                 'type': 'date',
                 'text': date_str,
                 'position': 'left_margin'  # Match photo overlay positioning
             })
-            self.logger.info(f"[VIDEO-OVERLAY-CREATE] Added date overlay: {date_str}")
+            self.logger.debug(f"[VIDEO-OVERLAY-CREATE] Added date overlay: {date_str}")
         else:
-            self.logger.warning(f"[VIDEO-OVERLAY-CREATE] No date_taken available for video")
+            self.logger.debug(f"[VIDEO-OVERLAY-CREATE] Date overlay disabled or no date_taken available")
         
-        # Add location overlay if available (same as photos)
-        if location_string:
+        # Add location overlay if available and enabled (same as photos)
+        if self.config.get('show_location_overlay', True) and location_string:
             overlays.append({
                 'type': 'location',
                 'text': location_string,
                 'position': 'right_margin'  # Match photo overlay positioning
             })
-            self.logger.info(f"[VIDEO-OVERLAY-CREATE] Added location overlay: {location_string}")
+            self.logger.debug(f"[VIDEO-OVERLAY-CREATE] Added location overlay: {location_string}")
         else:
-            self.logger.warning(f"[VIDEO-OVERLAY-CREATE] No location string available for video")
+            self.logger.debug(f"[VIDEO-OVERLAY-CREATE] Location overlay disabled or no location available")
         
         # Add filename overlay if enabled
         if self.show_filename:
@@ -1002,7 +1023,7 @@ class SlideshowController:
             'position': 'top_left'
         })
         
-        self.logger.info(f"[VIDEO-OVERLAY-CREATE] Created {len(overlays)} total overlays: {[o['type'] for o in overlays]}")
+        self.logger.debug(f"[VIDEO-OVERLAY-CREATE] Created {len(overlays)} total overlays: {[o['type'] for o in overlays]}")
         return overlays
     
     def pause_video(self) -> None:
@@ -1077,7 +1098,7 @@ class SlideshowController:
         slide_id = self.current_slide_id
         
         # Check if portrait pairing is enabled and this is a portrait photo
-        if (self.config.get('portrait_pairing', True) and photo.get('orientation') == 'portrait'):
+        if (self.config.get('PORTRAIT_PHOTO_PAIRING', True) and photo.get('orientation') == 'portrait'):
             second_photo, second_photo_index = self._find_pairing_partner(photo, photo_index)
             
             if second_photo:

@@ -4,7 +4,7 @@
     "display": {
       "label": "Display",
       "settings": {
-        "slideshow_interval": {
+        "PHOTO_TIMER": {
           "type": "integer",
           "label": "Slideshow Interval",
           "description": "Time in seconds to display each photo before advancing to the next slide.",
@@ -21,7 +21,7 @@
           "default": true,
           "requires_restart": false
         },
-        "video_max_duration": {
+        "VIDEO_MAX_TIMER": {
           "type": "integer",
           "label": "Max Video Duration",
           "description": "Maximum time in seconds to play each video. Videos longer than this will be cut off.",
@@ -50,7 +50,7 @@
     "video": {
       "label": "Video",
       "settings": {
-        "video_audio_enabled": {
+        "AUDIO_ENABLED": {
           "type": "boolean",
           "label": "Enable Video Audio",
           "description": "Play audio when displaying video slides.",
@@ -67,29 +67,11 @@
     "photos": {
       "label": "Photos",
       "settings": {
-        "portrait_pairing_enabled": {
+        "PORTRAIT_PHOTO_PAIRING": {
           "type": "boolean",
           "label": "Portrait Pairing",
           "description": "Automatically pair portrait-oriented photos side-by-side for better display.",
           "default": true
-        },
-        "min_people_for_pairing": {
-          "type": "integer",
-          "label": "Min People for Pairing",
-          "description": "Minimum number of people detected in a photo to consider it for portrait pairing.",
-          "default": 2,
-          "min": 1,
-          "max": 10,
-          "unit": "people"
-        },
-        "photo_limit": {
-          "type": "integer",
-          "label": "Photo Limit",
-          "description": "Maximum number of photos to load from the album. Set to 0 for no limit.",
-          "default": 0,
-          "min": 0,
-          "max": 10000,
-          "unit": "photos"
         }
       }
     },
@@ -140,25 +122,25 @@
     "filters": {
       "label": "Filters",
       "settings": {
-        "people_filter": {
-          "type": "string",
+        "FILTER_PEOPLE": {
+          "type": "array",
           "label": "People Filter",
-          "description": "Comma-separated list of people names to filter photos. Leave empty for no filter.",
-          "default": ""
+          "description": "List of people names to filter photos. Leave empty for no filter.",
+          "default": []
         },
-        "places_filter": {
-          "type": "string",
+        "FILTER_PLACES": {
+          "type": "array",
           "label": "Places Filter",
-          "description": "Comma-separated list of location names to filter photos. Leave empty for no filter.",
-          "default": ""
+          "description": "List of location names to filter photos. Leave empty for no filter.",
+          "default": []
         },
-        "keywords_filter": {
-          "type": "string",
+        "FILTER_KEYWORD": {
+          "type": "array",
           "label": "Keywords Filter",
-          "description": "Comma-separated list of keywords to filter photos. Leave empty for no filter.",
-          "default": ""
+          "description": "List of keywords to filter photos. Leave empty for no filter.",
+          "default": []
         },
-        "filter_logic": {
+        "FILTER_AND_OR": {
           "type": "enum",
           "label": "Filter Logic",
           "description": "How to combine multiple filters: AND requires all filters to match, OR requires any filter to match.",
@@ -176,7 +158,7 @@
           "description": "Name of the Apple Photos album to use for the slideshow.",
           "default": "All Photos"
         },
-        "cache_size": {
+        "NAV_HISTORY_SIZE": {
           "type": "integer",
           "label": "Cache Size",
           "description": "Number of photos to keep in memory cache for faster loading.",

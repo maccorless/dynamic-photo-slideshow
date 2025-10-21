@@ -56,7 +56,7 @@ class SettingsWindow:
         self.ok_button: Optional[pygame_gui.elements.UIButton] = None
         self.setting_widgets: Dict[str, Any] = {}  # Track all setting widgets
         
-        self.logger.info(f"Settings window initialized: {self.window_width}x{self.window_height}")
+        self.logger.debug(f"Settings window initialized: {self.window_width}x{self.window_height}")
     
     def show(self) -> None:
         """Show the settings window."""
@@ -416,14 +416,12 @@ class SettingsWindow:
         # Only apply Display settings live (all Display settings support live updates)
         if group == 'display':
             try:
-                if setting == 'slideshow_interval':
-                    # Update controller config with correct key (uppercase for internal use)
-                    self.controller.config.set('SLIDESHOW_INTERVAL', value)
-                    self.logger.info(f"✅ Applied live: slideshow_interval = {value}s (takes effect on next slide)")
-                elif setting == 'video_max_duration':
-                    # Update controller config with correct key (uppercase for internal use)
-                    self.controller.config.set('VIDEO_MAX_DURATION', value)
-                    self.logger.info(f"✅ Applied live: video_max_duration = {value}s (takes effect on next video)")
+                if setting == 'PHOTO_TIMER':
+                    self.controller.config.set('PHOTO_TIMER', value)
+                    self.logger.info(f"✅ Applied live: PHOTO_TIMER = {value}s (takes effect on next slide)")
+                elif setting == 'VIDEO_MAX_TIMER':
+                    self.controller.config.set('VIDEO_MAX_TIMER', value)
+                    self.logger.info(f"✅ Applied live: VIDEO_MAX_TIMER = {value}s (takes effect on next video)")
                 elif setting == 'show_countdown_timer':
                     self.controller.config.set('show_countdown_timer', value)
                     self.logger.info(f"✅ Applied live: show_countdown_timer = {value} (takes effect immediately)")

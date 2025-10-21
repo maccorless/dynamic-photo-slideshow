@@ -25,7 +25,7 @@ class SettingsManager:
         self.schema_path = Path(schema_path)
         self.config_path = Path(config_path)
         
-        self.logger.info(f"SettingsManager initialized with config_path: {self.config_path.absolute()}")
+        self.logger.debug(f"SettingsManager initialized with config_path: {self.config_path.absolute()}")
         
         # Load schema
         self.schema = self._load_schema()
@@ -44,7 +44,7 @@ class SettingsManager:
         try:
             with open(self.schema_path, 'r') as f:
                 schema = json.load(f)
-            self.logger.info(f"Loaded config schema from {self.schema_path}")
+            self.logger.debug(f"Loaded config schema from {self.schema_path}")
             return schema
         except FileNotFoundError:
             self.logger.error(f"Schema file not found: {self.schema_path}")
@@ -59,7 +59,7 @@ class SettingsManager:
             try:
                 with open(self.config_path, 'r') as f:
                     flat_config = json.load(f)
-                self.logger.info(f"Loaded user config from {self.config_path}")
+                self.logger.debug(f"Loaded user config from {self.config_path}")
                 
                 # Convert flat format to grouped format
                 grouped_config = self._flat_to_grouped(flat_config)
@@ -68,7 +68,7 @@ class SettingsManager:
                 return self._merge_with_defaults(grouped_config)
             except json.JSONDecodeError as e:
                 self.logger.error(f"Invalid JSON in config file: {e}")
-                self.logger.info("Creating new config from defaults")
+                self.logger.debug("Creating new config from defaults")
         
         # Create config from defaults
         config = self._create_default_config()
@@ -84,7 +84,7 @@ class SettingsManager:
             for setting_name, setting_data in group_data["settings"].items():
                 config[group_name][setting_name] = setting_data["default"]
         
-        self.logger.info("Created default configuration")
+        self.logger.debug("Created default configuration")
         return config
     
     def _merge_with_defaults(self, user_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -311,25 +311,6 @@ class SettingsManager:
             ...
         }
         """
-        # Map SlideshowConfig keys to schema keys
-        # Handles both case differences and name differences
-        KEY_MAPPING = {
-            # Case differences (UPPERCASE → lowercase)
-            "SLIDESHOW_INTERVAL": "slideshow_interval",
-            "VIDEO_MAX_DURATION": "video_max_duration",
-            "VIDEO_AUDIO_ENABLED": "video_audio_enabled",
-            
-            # Name differences (different key names)
-            "photo_history_cache_size": "cache_size",
-            "overall_filter_logic": "filter_logic",
-            "filter_by_keywords": "keywords_filter",
-            "filter_people_names": "people_filter",
-            "filter_by_places": "places_filter",
-            "max_photos_limit": "photo_limit",
-            "portrait_pairing": "portrait_pairing_enabled",
-            "min_people_count": "min_people_for_pairing",
-        }
-        
         grouped = {"version": self.schema["version"]}
         
         # Create mapping of setting_name -> group_name from schema
@@ -347,13 +328,10 @@ class SettingsManager:
             if key == "version":
                 continue
             
-            # Map from SlideshowConfig key to schema key if needed
-            schema_key = KEY_MAPPING.get(key, key)
-            
             # Find which group this setting belongs to
-            group_name = setting_to_group.get(schema_key)
+            group_name = setting_to_group.get(key)
             if group_name:
-                grouped[group_name][schema_key] = value
+                grouped[group_name][key] = value
             else:
                 # Unknown setting, skip it (it's not in our schema)
                 self.logger.debug(f"Skipping unknown setting: {key}")
@@ -363,7 +341,6 @@ class SettingsManager:
     def _grouped_to_flat(self, grouped_config: Dict[str, Any]) -> Dict[str, Any]:
         """
         Convert grouped config format to flat format.
-        Maps schema keys to SlideshowConfig keys (some need uppercase).
         
         Grouped format (SettingsManager):
         {
@@ -382,25 +359,6 @@ class SettingsManager:
             ...
         }
         """
-        # Map schema keys to SlideshowConfig keys
-        # Handles both case differences and name differences
-        KEY_MAPPING = {
-            # Case differences (lowercase → UPPERCASE)
-            "slideshow_interval": "SLIDESHOW_INTERVAL",
-            "video_max_duration": "VIDEO_MAX_DURATION",
-            "video_audio_enabled": "VIDEO_AUDIO_ENABLED",
-            
-            # Name differences (different key names)
-            "cache_size": "photo_history_cache_size",
-            "filter_logic": "overall_filter_logic",
-            "keywords_filter": "filter_by_keywords",
-            "people_filter": "filter_people_names",
-            "places_filter": "filter_by_places",
-            "photo_limit": "max_photos_limit",
-            "portrait_pairing_enabled": "portrait_pairing",
-            "min_people_for_pairing": "min_people_count",
-        }
-        
         flat = {}
         
         for key, value in grouped_config.items():
@@ -410,13 +368,10 @@ class SettingsManager:
             # If value is a dict, it's a group - flatten it
             if isinstance(value, dict):
                 for setting_key, setting_value in value.items():
-                    # Map to SlideshowConfig key name if needed
-                    output_key = KEY_MAPPING.get(setting_key, setting_key)
-                    flat[output_key] = setting_value
+                    flat[setting_key] = setting_value
             else:
                 # Not a group, add directly
-                output_key = KEY_MAPPING.get(key, key)
-                flat[output_key] = value
+                flat[key] = value
         
         return flat
     

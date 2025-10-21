@@ -27,8 +27,8 @@ class SlideshowConfig:
         "min_people_count": 1,
         "max_photos_limit": 500,
         "shuffle_photos": True,
-        "SLIDESHOW_INTERVAL": 10,
-        "portrait_pairing": True,
+        "PHOTO_TIMER": 10,
+        "PORTRAIT_PHOTO_PAIRING": True,
         "MONITOR_RESOLUTION": "auto",
         "OVERLAY_PLACEMENT": "TOP",
         "OVERLAY_ALIGNMENT": "CENTER",
@@ -42,13 +42,13 @@ class SlideshowConfig:
         "download_batch_size": 100,
         "max_year_percentage": 0.3,
         "cache_refresh_check_interval": 3600,
-        "photo_history_cache_size": 100,
+        "NAV_HISTORY_SIZE": 100,
         "DEBUG_SCALING": False,
         "LOGGING_VERBOSE": False,
         # Video playback settings for v3.0
         'video_playback_enabled': True,
-        'VIDEO_MAX_DURATION': 15, # seconds - maximum video length to play
-        'VIDEO_AUDIO_ENABLED': True, # Enable audio playback for videos
+        'VIDEO_MAX_TIMER': 15, # seconds - maximum video length to play
+        'AUDIO_ENABLED': True, # Enable audio playback for videos
         'video_auto_play': True, # Automatically play videos in slideshow
         'video_loop': False, # Loop videos if shorter than slideshow interval
         'video_thumbnail_enabled': True, # Generate thumbnails for videos
@@ -72,6 +72,8 @@ class SlideshowConfig:
             "resume": ["blueberry", "start", "resume", "play", "continue"]
         },
         "show_countdown_timer": True,
+        "show_date_overlay": True,
+        "show_location_overlay": True,
         
         # Test/Debug settings
         'video_test_mode': False  # If True, only shows videos in rotation for testing
@@ -119,7 +121,7 @@ class SlideshowConfig:
                         # Allow additional config keys not in defaults
                         self.config[key] = value
                 
-                self.logger.info(f"Configuration loaded from {self.config_path}")
+                self.logger.debug(f"Configuration loaded from {self.config_path}")
             else:
                 self.logger.info("No config file found, using defaults")
                 self._create_default_config()
@@ -130,7 +132,7 @@ class SlideshowConfig:
     
     def _validate_config_value(self, key: str, value: Any) -> bool:
         """Validate a configuration value."""
-        if key == "SLIDESHOW_INTERVAL":
+        if key == "PHOTO_TIMER":
             return isinstance(value, int) and 1 <= value <= 86400
         elif key == "CACHE_SIZE_LIMIT_GB":
             return isinstance(value, int) and 1 <= value <= 100
@@ -153,7 +155,7 @@ class SlideshowConfig:
         elif key == "max_photos_limit":
             # 0 means no limit, so allow >= 0
             return isinstance(value, int) and value >= 0
-        elif key in ["min_people_count", "SLIDESHOW_INTERVAL", 
+        elif key in ["min_people_count", "PHOTO_TIMER", 
                      "CACHE_SIZE_LIMIT_GB", "max_recent_photos", "fallback_photo_limit",
                      "min_fallback_photos", "progress_log_interval", "download_batch_size",
                      "cache_refresh_check_interval"]:

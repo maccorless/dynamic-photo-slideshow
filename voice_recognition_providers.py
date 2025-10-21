@@ -167,7 +167,7 @@ class VoiceRecognitionProviderFactory:
         if provider_type.lower() == 'google':
             provider = GoogleVoiceRecognitionProvider(config)
             if provider.is_available():
-                logger.info(f"Created {provider.get_provider_name()} provider")
+                logger.debug(f"Created {provider.get_provider_name()} provider")
                 return provider
             else:
                 logger.warning("Google Speech Recognition not available")

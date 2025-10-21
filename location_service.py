@@ -47,7 +47,7 @@ class LocationService:
             if self.cache_file.exists():
                 with open(self.cache_file, 'r') as f:
                     self.cache = json.load(f)
-                self.logger.info(f"Loaded {len(self.cache)} cached locations")
+                self.logger.debug(f"Loaded {len(self.cache)} cached locations")
             else:
                 self.cache = {}
         except (json.JSONDecodeError, IOError) as e:

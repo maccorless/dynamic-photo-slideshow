@@ -71,9 +71,9 @@ class VideoManager:
             )
         
         if OPENCV_AVAILABLE:
-            self.logger.info("OpenCV available for video processing")
+            self.logger.debug("OpenCV available for video processing")
         if MOVIEPY_AVAILABLE:
-            self.logger.info("MoviePy available as fallback for video processing")
+            self.logger.debug("MoviePy available as fallback for video processing")
     
     def is_video_file(self, file_path: str) -> bool:
         """

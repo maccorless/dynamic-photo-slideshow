@@ -87,7 +87,7 @@ class PygameDisplayManager:
         self.settings_manager = None
         self.settings_window = None
         
-        self.logger.info(f"Pygame Display Manager initialized: {self.screen_width}x{self.screen_height}")
+        self.logger.debug(f"Pygame Display Manager initialized: {self.screen_width}x{self.screen_height}")
     
     def set_controller(self, controller, settings_manager):
         """
@@ -99,7 +99,7 @@ class PygameDisplayManager:
         """
         self.settings_manager = settings_manager
         self.settings_window = SettingsWindow(self.screen, settings_manager, controller)
-        self.logger.info("Settings window initialized with shared settings manager and controller")
+        self.logger.debug("Settings window initialized with shared settings manager and controller")
     
     def display_photo(self, photo_data, location_string: Optional[str] = None, slideshow_timer: Optional[int] = None) -> None:
         """Display a photo using pygame."""
@@ -394,14 +394,14 @@ class PygameDisplayManager:
     def play_video(self, video_path: str, max_duration: int = 15, completion_callback=None, overlays: List[Dict[str, Any]] = None, video_metadata: Dict[str, Any] = None) -> bool:
         """Play video using pyvidplayer2 with overlay support."""
         try:
-            self.logger.info(f"Playing video: {os.path.basename(video_path)}")
+            self.logger.debug(f"Playing video: {os.path.basename(video_path)}")
             
             # Store overlays for use during video playback
             self.current_video_overlays = overlays or []
-            self.logger.info(f"[VIDEO-OVERLAY-STORE] Stored {len(self.current_video_overlays)} overlays for video playback")
+            self.logger.debug(f"[VIDEO-OVERLAY-STORE] Stored {len(self.current_video_overlays)} overlays for video playback")
             if self.current_video_overlays:
                 for i, overlay in enumerate(self.current_video_overlays):
-                    self.logger.info(f"[VIDEO-OVERLAY-STORE] Overlay {i+1}: {overlay.get('type')} = '{overlay.get('text')}' at {overlay.get('position')}")
+                    self.logger.debug(f"[VIDEO-OVERLAY-STORE] Overlay {i+1}: {overlay.get('type')} = '{overlay.get('text')}' at {overlay.get('position')}")
             
             # Reset countdown state for new slide
             self._reset_countdown_state()
@@ -423,8 +423,8 @@ class PygameDisplayManager:
             # Load video with detailed error handling
             try:
                 video = Video(video_path)
-                self.logger.info(f"[VIDEO-LOAD] Successfully loaded video: {os.path.basename(video_path)}")
-                video.set_volume(self.config.get('VIDEO_AUDIO_ENABLED', True))
+                self.logger.debug(f"[VIDEO-LOAD] Successfully loaded video: {os.path.basename(video_path)}")
+                video.set_volume(self.config.get('AUDIO_ENABLED', True))
             except FileNotFoundError:
                 self.logger.error(f"[VIDEO-LOAD-ERROR] Video file not found: {video_path}")
                 self._display_video_error_message(f"Video not found: {os.path.basename(video_path)}")
@@ -453,7 +453,7 @@ class PygameDisplayManager:
                     'height': video_metadata.get('height', self.screen_height),
                     'path': video_path
                 }
-                self.logger.info(f"[VIDEO-METADATA] Stored video dimensions from metadata: {self.current_video_metadata['width']}x{self.current_video_metadata['height']}")
+                self.logger.debug(f"[VIDEO-METADATA] Stored video dimensions from metadata: {self.current_video_metadata['width']}x{self.current_video_metadata['height']}")
             else:
                 # Fallback if no metadata provided
                 self.current_video_metadata = {
@@ -476,7 +476,7 @@ class PygameDisplayManager:
                 video_duration = video.duration if hasattr(video, 'duration') and video.duration else max_duration
                 # Use minimum of actual video duration and max_duration cap
                 slide_timer = min(int(video_duration), max_duration)
-                self.logger.info(f"[VIDEO-COUNTDOWN] Video duration: {video_duration:.1f}s, max_duration: {max_duration}s, using slide_timer: {slide_timer}s")
+                self.logger.debug(f"[VIDEO-COUNTDOWN] Video duration: {video_duration:.1f}s, max_duration: {max_duration}s, using slide_timer: {slide_timer}s")
             except Exception as e:
                 self.logger.warning(f"[VIDEO-COUNTDOWN] Could not get video duration: {e}, using max_duration: {max_duration}s")
                 slide_timer = max_duration
@@ -484,7 +484,7 @@ class PygameDisplayManager:
             # Video is now ready - notify controller to start timer
             if hasattr(self, 'controller') and self.controller and hasattr(self.controller, 'current_slide'):
                 if hasattr(self.controller, 'start_video_timer'):
-                    self.logger.info(f"[VIDEO-READY] Video setup complete - notifying controller to start timer")
+                    self.logger.debug(f"[VIDEO-READY] Video setup complete - notifying controller to start timer")
                     self.controller.start_video_timer(self.controller.current_slide)
                 else:
                     self.logger.warning(f"[VIDEO-READY] Controller has no start_video_timer method")
@@ -495,12 +495,12 @@ class PygameDisplayManager:
             while self.running and self.video_playing and (time.time() - start_time) < max_duration:
                 # Check if slideshow is paused
                 if hasattr(self, 'controller') and self.controller and self.controller.is_paused:
-                    self.logger.info(f"[VIDEO-PAUSE] Video paused by slideshow controller")
+                    self.logger.debug(f"[VIDEO-PAUSE] Video paused by slideshow controller")
                     
                     # Pause the video
                     pause_success = self.pause_video()
                     if pause_success:
-                        self.logger.info(f"[VIDEO-PAUSE] Video successfully paused")
+                        self.logger.debug(f"[VIDEO-PAUSE] Video successfully paused")
                     else:
                         self.logger.warning(f"[VIDEO-PAUSE] Failed to pause video")
                     
@@ -550,14 +550,14 @@ class PygameDisplayManager:
                     # Resume video when unpaused
                     resume_success = self.resume_video()
                     if resume_success:
-                        self.logger.info(f"[VIDEO-RESUME] Video successfully resumed")
+                        self.logger.debug(f"[VIDEO-RESUME] Video successfully resumed")
                     else:
                         self.logger.warning(f"[VIDEO-RESUME] Failed to resume video")
                     
                     # Adjust timing for pause duration
                     paused_duration = time.time() - paused_start_time
                     start_time += paused_duration
-                    self.logger.info(f"[VIDEO-RESUME] Adjusted timing after {paused_duration:.1f}s pause")
+                    self.logger.debug(f"[VIDEO-RESUME] Adjusted timing after {paused_duration:.1f}s pause")
                     continue
                 # Handle events
                 for event in pygame.event.get():
@@ -676,13 +676,13 @@ class PygameDisplayManager:
         try:
             overlay_texts = []
             
-            # Format date if available (EXACT v2.0 logic)
-            if photo_data.get('date_taken'):
+            # Format date if available and enabled (EXACT v2.0 logic)
+            if self.config.get('show_date_overlay', True) and photo_data.get('date_taken'):
                 date_str = photo_data['date_taken'].strftime('%B %d, %Y')
                 overlay_texts.append(date_str)
             
-            # Add location if available
-            if location_string:
+            # Add location if available and enabled
+            if self.config.get('show_location_overlay', True) and location_string:
                 overlay_texts.append(location_string)
             
             if not overlay_texts:
@@ -1006,20 +1006,20 @@ class PygameDisplayManager:
     def display_video(self, video_path: str, overlays: List[Dict[str, Any]] = None, max_duration: int = None, completion_callback=None, video_metadata: Dict[str, Any] = None) -> bool:
         """Display video with overlays (compatibility method)."""
         if max_duration is None:
-            max_duration = self.config.get('VIDEO_MAX_DURATION', 15)
+            max_duration = self.config.get('VIDEO_MAX_TIMER', 15)
         return self.play_video(video_path, max_duration, completion_callback, overlays, video_metadata)
     
     def pause_video(self) -> None:
         """Pause video playback."""
         if self.current_video and self.video_playing:
             self.current_video.pause()
-            self.logger.info("Video paused")
+            self.logger.debug("Video paused")
     
     def resume_video(self) -> None:
         """Resume video playback."""
         if self.current_video and self.video_playing:
             self.current_video.resume()
-            self.logger.info("Video resumed")
+            self.logger.debug("Video resumed")
     
     def stop_video(self) -> None:
         """Stop video playback."""
@@ -1027,7 +1027,7 @@ class PygameDisplayManager:
             self.current_video.close()
             self.current_video = None
         self.video_playing = False
-        self.logger.info("Video stopped")
+        self.logger.debug("Video stopped")
     
     def pause_video(self) -> bool:
         """Synchronously pause the currently playing video.
@@ -1042,7 +1042,7 @@ class PygameDisplayManager:
         try:
             if hasattr(self.current_video, 'pause'):
                 self.current_video.pause()
-                self.logger.info("[VIDEO-PAUSE] Video paused successfully")
+                self.logger.debug("[VIDEO-PAUSE] Video paused successfully")
                 return True
             else:
                 self.logger.warning("[VIDEO-PAUSE] Video object has no pause method")
@@ -1064,15 +1064,15 @@ class PygameDisplayManager:
         try:
             if hasattr(self.current_video, 'resume'):
                 self.current_video.resume()
-                self.logger.info("[VIDEO-RESUME] Video resumed successfully")
+                self.logger.debug("[VIDEO-RESUME] Video resumed successfully")
                 return True
             elif hasattr(self.current_video, 'unpause'):
                 self.current_video.unpause()
-                self.logger.info("[VIDEO-RESUME] Video unpaused successfully")
+                self.logger.debug("[VIDEO-RESUME] Video unpaused successfully")
                 return True
             elif hasattr(self.current_video, 'play'):
                 self.current_video.play()
-                self.logger.info("[VIDEO-RESUME] Video play() called successfully")
+                self.logger.debug("[VIDEO-RESUME] Video play() called successfully")
                 return True
             else:
                 self.logger.warning("[VIDEO-RESUME] Video object has no resume/unpause/play method")
@@ -1143,7 +1143,7 @@ class PygameDisplayManager:
                 
                 # Store command text
                 self._voice_command_text = command.upper()
-                self.logger.info(f"[VOICE-OVERLAY] Showing command: {self._voice_command_text}")
+                self.logger.debug(f"[VOICE-OVERLAY] Showing command: {self._voice_command_text}")
                 
                 # Draw the overlay immediately
                 self._draw_voice_command_overlay()
@@ -1189,7 +1189,7 @@ class PygameDisplayManager:
         try:
             with self._voice_command_lock:
                 if self._voice_command_text:
-                    self.logger.info(f"[VOICE-OVERLAY] Auto-clearing command: {self._voice_command_text}")
+                    self.logger.debug(f"[VOICE-OVERLAY] Auto-clearing command: {self._voice_command_text}")
                     self._voice_command_text = None
                     # Note: Overlay will be cleared on next display update (countdown or video frame)
         

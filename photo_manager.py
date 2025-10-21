@@ -46,7 +46,7 @@ class PhotoManager:
         try:
             self.video_manager = VideoManager(self.logger)
             self.video_support_enabled = True
-            self.logger.info("Video processing support enabled")
+            self.logger.debug("Video processing support enabled")
         except VideoProcessingError as e:
             self.video_manager = None
             self.video_support_enabled = False
@@ -60,7 +60,7 @@ class PhotoManager:
         """Connect to Photos library using osxphotos."""
         try:
             self.photos_db = osxphotos.PhotosDB()
-            self.logger.info("Successfully connected to Photos library")
+            self.logger.debug("Successfully connected to Photos library")
             return True
         except (OSError, PermissionError) as e:
             self.logger.error(f"Failed to connect to Photos library: {e}")
@@ -137,9 +137,9 @@ class PhotoManager:
             # Check if we should use filters instead of album
             use_filters = (
                 self.config.get('filter_by_people', False) or 
-                self.config.get('filter_people_names', []) or
-                self.config.get('filter_by_places', []) or 
-                self.config.get('filter_by_keywords', [])
+                self.config.get('FILTER_PEOPLE', []) or
+                self.config.get('FILTER_PLACES', []) or 
+                self.config.get('FILTER_KEYWORD', [])
             )
             
             if use_filters:
@@ -233,18 +233,33 @@ class PhotoManager:
         except Exception as e:
             raise PhotoLoadError(f"Unexpected error loading photos: {e}")
     
-    def _load_photos_with_filters(self) -> List[Dict[str, Any]]:
+    def _load_photos_with_filters(self, log_search: bool = True) -> List[Dict[str, Any]]:
         """Load photos using direct osxphotos search for people filtering."""
         try:
             # Get filter configurations
-            filter_people_names = self.config.get('filter_people_names', [])
-            filter_places = self.config.get('filter_by_places', [])
-            filter_keywords = self.config.get('filter_by_keywords', [])
+            filter_people_names = self.config.get('FILTER_PEOPLE', [])
+            filter_places = self.config.get('FILTER_PLACES', [])
+            filter_keywords = self.config.get('FILTER_KEYWORD', [])
             max_photos = self.config.get('max_photos_limit')
+            
+            # Get total library count first
+            total_library_count = len(list(self.photos_db.photos()))
+            if log_search:
+                self.logger.info(f"Photo library: {total_library_count} total items (photos + videos)")
             
             # Use direct osxphotos search for people if specified
             if filter_people_names:
-                self.logger.info(f"Using direct osxphotos search for people: {filter_people_names}")
+                if log_search:
+                    # Build filter description
+                    filters = []
+                    if filter_people_names:
+                        filters.append(f"FILTER_PEOPLE={filter_people_names}")
+                    if filter_places:
+                        filters.append(f"FILTER_PLACES={filter_places}")
+                    if filter_keywords:
+                        filters.append(f"FILTER_KEYWORDS={filter_keywords}")
+                    filter_str = ", ".join(filters) if filters else "None"
+                    self.logger.info(f"Filters applied: {filter_str}")
                 
                 # Get photos using direct search
                 filtered_photos = []
@@ -252,7 +267,7 @@ class PhotoManager:
                     try:
                         person_photos = self.photos_db.photos(persons=[person_name.strip()])
                         filtered_photos.extend(person_photos)
-                        self.logger.info(f"Found {len(person_photos)} photos with person '{person_name}'")
+                        self.logger.debug(f"Found {len(person_photos)} photos with person '{person_name}'")
                     except (OSError, AttributeError, ValueError) as e:
                         self.logger.warning(f"Error searching for person '{person_name}': {e}")
                 
@@ -265,9 +280,11 @@ class PhotoManager:
                         seen_uuids.add(photo.uuid)
                 
                 all_photos = unique_photos
-                self.logger.info(f"After people filtering: {len(all_photos)} unique photos")
+                self.logger.debug(f"After people filtering: {len(all_photos)} unique photos")
             else:
                 all_photos = list(self.photos_db.photos())
+                if log_search:
+                    self.logger.info(f"Filters applied: None")
             
             # Apply other filters and extract metadata first, then implement proper temporal distribution
             photos = []
@@ -294,19 +311,29 @@ class PhotoManager:
                 processed_count += 1
                 # Log progress for large libraries
                 if processed_count % self.config.get('progress_log_interval') == 0:
-                    self.logger.info(f"Processed {processed_count}/{len(all_photos)} photos, found {len(photos)} matches")
+                    self.logger.debug(f"Processed {processed_count}/{len(all_photos)} photos, found {len(photos)} matches")
             
             # Use all available photos - no need to limit since they're all locally cached
             if self.config.get('shuffle_photos', True):
                 random.shuffle(photos)
-                self.logger.info(f"Using all {len(photos)} photos in random order")
+                self.logger.debug(f"Using all {len(photos)} photos in random order")
             
-            self.logger.info(f"Found {len(photos)} photos matching all filter criteria after processing {processed_count} photos")
-            self.logger.info(f"Rejected {rejected_count} photos during metadata extraction")
+            if log_search:
+                matched_count = len(all_photos)
+                self.logger.info(f"Filter results: {matched_count} items matched filters, {len(photos)} loaded ({rejected_count} rejected)")
             
             # Clear any existing cache and force fresh load
+            old_cache_count = len(self.photos_cache) if self.photos_cache else 0
             self.photos_cache = None
             self.photos_cache = photos
+            
+            if log_search:
+                new_count = len(photos) - old_cache_count
+                if new_count > 0:
+                    self.logger.info(f"Cache status: {len(photos)} items in cache ({new_count} new this session)")
+                else:
+                    self.logger.info(f"Cache status: {len(photos)} items in cache (0 new this session)")
+            
             return photos
             
         except (OSError, MemoryError) as e:
@@ -519,16 +546,16 @@ class PhotoManager:
         
         # Load new photos incrementally
         old_count = len(self.photos_cache)
-        self.logger.info(f"Loading new photos incrementally (had {old_count} photos)")
+        self.logger.debug(f"Checking for new photos (had {old_count} photos)")
         
-        # Get fresh photos from the library
-        new_photos = self._load_photos_with_filters()
+        # Get fresh photos from the library (suppress logging for incremental check)
+        new_photos = self._load_photos_with_filters(log_search=False)
         
         if len(new_photos) > old_count:
             # Add only the new photos to the existing cache
             new_photo_count = len(new_photos) - old_count
             self.photos_cache = new_photos  # Replace with full updated list
-            self.logger.info(f"Added {new_photo_count} new photos to cache (now {len(self.photos_cache)} total)")
+            self.logger.info(f"Cache updated: {new_photo_count} new items added (now {len(self.photos_cache)} total)")
             self.last_cache_check = datetime.now(timezone.utc)
             return True
         
@@ -550,9 +577,9 @@ class PhotoManager:
                 return []
             
             # Get filter configurations
-            filter_people_names = self.config.get('filter_people_names', [])
-            filter_places = self.config.get('filter_by_places', [])
-            filter_keywords = self.config.get('filter_by_keywords', [])
+            filter_people_names = self.config.get('FILTER_PEOPLE', [])
+            filter_places = self.config.get('FILTER_PLACES', [])
+            filter_keywords = self.config.get('FILTER_KEYWORD', [])
             
             # Use direct osxphotos search for people if specified
             if filter_people_names:

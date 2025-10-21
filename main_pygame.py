@@ -34,6 +34,9 @@ def setup_logging(verbose: bool = False) -> None:
             logging.StreamHandler(sys.stdout) if verbose else logging.NullHandler()
         ]
     )
+    
+    # Suppress osxphotos platform warning (library works fine on newer macOS)
+    logging.getLogger('osxphotos').setLevel(logging.ERROR)
 
 
 class PygameSlideshowController:
@@ -306,6 +309,9 @@ def main() -> None:
         setup_logging(config.get('verbose', False))
         logger = logging.getLogger(__name__)
         
+        # Log user configuration summary
+        logger.info(f"Slideshow config: PHOTO_TIMER={config.get('PHOTO_TIMER')}s, VIDEO_MAX_TIMER={config.get('VIDEO_MAX_TIMER')}s, Display={config.get('MONITOR_RESOLUTION', 'auto')}")
+        
         # Initialize photo manager and load photos
         photo_manager = PhotoManager(config, path_config)
         photos = photo_manager.load_photos()
@@ -314,9 +320,6 @@ def main() -> None:
             print("No photos found. Please check your album configuration.")
             logger.error("Please add photos to this album in Photos.")
             return
-        
-        album_name = config.get('album_name', 'photoframe')
-        logger.info(f"Loaded {len(photos)} photos from album '{album_name}'")
         
         # Create pygame display manager
         display_manager = PygameDisplayManager(config)
@@ -333,9 +336,6 @@ def main() -> None:
         
         # Initialize settings window with controller and settings manager
         display_manager.set_controller(controller.controller, settings_manager)
-        
-        logger.info(f"Starting pygame slideshow with {len(photos)} photos...")
-        logger.info("Controls: Spacebar (pause/play), Arrow keys (prev/next), Shift (show filename), Escape (exit)")
         
         controller.start_slideshow()
         
