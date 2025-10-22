@@ -471,12 +471,9 @@ class PhotoManager:
             # Handle videos that need to be exported from Apple Photos
             if not photo_data['path'] or photo_data['path'] == '':
                 if media_type == 'video' and hasattr(photo, 'export'):
-                    # Check if video is in iCloud but not downloaded locally
-                    if hasattr(photo, 'ismissing') and photo.ismissing:
-                        self.logger.debug(f"Skipping iCloud-only video (not downloaded): {photo_data.get('filename', 'unknown')}")
-                        return None
-                    
                     # For videos without direct paths, we'll handle export during display
+                    # Note: We no longer check ismissing - let osxphotos attempt export
+                    # If video is truly unavailable, export will fail gracefully
                     photo_data['needs_export'] = True
                     photo_data['osxphoto_object'] = photo  # Store reference for export
                     self.logger.debug(f"Video needs export: {photo_data.get('filename', 'unknown')}")
