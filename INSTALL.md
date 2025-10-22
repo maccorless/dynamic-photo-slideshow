@@ -24,6 +24,7 @@ This downloads the installation script directly from GitHub.
 The installer will:
 - ✅ Check for Python 3.11+ (guide you to install if missing)
 - ✅ Check for git (guide you to install if missing)
+- ✅ Check for ffmpeg (warn if missing - required for videos)
 - ✅ Clone the repository to `/Applications/PhotoSlideshow`
 - ✅ Create a virtual environment
 - ✅ Install all Python dependencies
@@ -82,6 +83,20 @@ git --version
 ```bash
 xcode-select --install
 ```
+
+### FFmpeg (Required for Video Playback)
+
+**Check if installed:**
+```bash
+ffprobe -version
+```
+
+**If not installed:**
+```bash
+brew install ffmpeg
+```
+
+**Note:** Without ffmpeg, photos will work but videos will not play.
 
 ---
 

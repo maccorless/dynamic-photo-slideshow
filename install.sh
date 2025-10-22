@@ -109,6 +109,26 @@ else
     echo "   ✅ git is installed"
 fi
 
+# Check for ffmpeg/ffprobe (required for video playback)
+echo "🎬 Checking for ffmpeg..."
+if ! command -v ffprobe &> /dev/null; then
+    echo "   ⚠️  ffmpeg not found (required for video playback)"
+    echo ""
+    echo "Install ffmpeg via Homebrew:"
+    echo "   brew install ffmpeg"
+    echo ""
+    read -p "Continue without ffmpeg? Videos will not play. (yes/no): " -r
+    if [[ ! $REPLY =~ ^[Yy]es$ ]]; then
+        echo "Installation cancelled"
+        echo "Please install ffmpeg and run this script again"
+        exit 0
+    fi
+    echo "   ⚠️  Continuing without ffmpeg - videos will not work"
+else
+    FFMPEG_VERSION=$(ffmpeg -version | head -n1 | cut -d' ' -f3)
+    echo "   ✅ ffmpeg is installed (version $FFMPEG_VERSION)"
+fi
+
 # Warn if old installation exists
 if [ -d "/opt/slideshow" ]; then
     echo ""
