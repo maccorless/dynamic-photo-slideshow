@@ -473,7 +473,7 @@ class PhotoManager:
                 if media_type == 'video' and hasattr(photo, 'export'):
                     # Check if video is in iCloud but not downloaded locally
                     if hasattr(photo, 'ismissing') and photo.ismissing:
-                        self.logger.info(f"Skipping iCloud-only video (not downloaded): {photo_data.get('filename', 'unknown')}")
+                        self.logger.debug(f"Skipping iCloud-only video (not downloaded): {photo_data.get('filename', 'unknown')}")
                         return None
                     
                     # For videos without direct paths, we'll handle export during display
