@@ -469,18 +469,18 @@ class PhotoManager:
             except (AttributeError, TypeError):
                 pass  # GPS not available
 
-            # Handle videos that need to be exported from Apple Photos
+            # Handle photos/videos that need to be exported from Apple Photos
             if not photo_data['path'] or photo_data['path'] == '':
                 self.logger.debug(f"[EXTRACT-DEBUG] {photo_data['filename']}: path is empty, media_type={media_type}, hasattr(export)={hasattr(photo, 'export')}")
-                if media_type == 'video' and hasattr(photo, 'export'):
-                    # For videos without direct paths, we'll handle export during display
+                if hasattr(photo, 'export'):
+                    # For photos/videos without direct paths, we'll handle export during display
                     # Note: We no longer check ismissing - let osxphotos attempt export
-                    # If video is truly unavailable, export will fail gracefully
+                    # If media is truly unavailable, export will fail gracefully
                     photo_data['needs_export'] = True
                     photo_data['osxphoto_object'] = photo  # Store reference for export
-                    self.logger.debug(f"[EXTRACT-DEBUG] Video needs export: {photo_data.get('filename', 'unknown')}")
+                    self.logger.debug(f"[EXTRACT-DEBUG] {media_type} needs export: {photo_data.get('filename', 'unknown')}")
                 else:
-                    self.logger.debug(f"[EXTRACT-DEBUG] Rejecting photo due to missing path: {photo_data.get('filename', 'unknown')}")
+                    self.logger.debug(f"[EXTRACT-DEBUG] Rejecting {media_type} due to missing path and no export capability: {photo_data.get('filename', 'unknown')}")
                     return None
 
             self.logger.debug(f"[EXTRACT-DEBUG] Returning photo_data for {photo_data['filename']}: needs_export={photo_data.get('needs_export', False)}")
