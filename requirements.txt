@@ -9,7 +9,6 @@ opencv-python>=4.8.0
 moviepy>=1.0.3
 imageio>=2.31.0
 # Pygame display dependencies
-pygame>=2.5.0
-pygame-ce>=2.5.5  # Provides DIRECTION_LTR constant for pygame_gui compatibility
+pygame-ce>=2.5.5  # Community Edition - drop-in replacement for pygame with DIRECTION_LTR support
 pyvidplayer2>=0.9.18
 pygame-gui>=0.6.9
