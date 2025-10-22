@@ -412,6 +412,7 @@ class PhotoManager:
         try:
             # Skip hidden photos and RAW images
             if photo.hidden or photo.has_raw:
+                self.logger.debug(f"[EXTRACT-DEBUG] Rejecting {photo.filename}: hidden={photo.hidden}, has_raw={photo.has_raw}")
                 return None
 
             # Determine media type
@@ -470,21 +471,23 @@ class PhotoManager:
 
             # Handle videos that need to be exported from Apple Photos
             if not photo_data['path'] or photo_data['path'] == '':
+                self.logger.debug(f"[EXTRACT-DEBUG] {photo_data['filename']}: path is empty, media_type={media_type}, hasattr(export)={hasattr(photo, 'export')}")
                 if media_type == 'video' and hasattr(photo, 'export'):
                     # For videos without direct paths, we'll handle export during display
                     # Note: We no longer check ismissing - let osxphotos attempt export
                     # If video is truly unavailable, export will fail gracefully
                     photo_data['needs_export'] = True
                     photo_data['osxphoto_object'] = photo  # Store reference for export
-                    self.logger.debug(f"Video needs export: {photo_data.get('filename', 'unknown')}")
+                    self.logger.debug(f"[EXTRACT-DEBUG] Video needs export: {photo_data.get('filename', 'unknown')}")
                 else:
-                    self.logger.debug(f"Rejecting photo due to missing path: {photo_data.get('filename', 'unknown')}")
+                    self.logger.debug(f"[EXTRACT-DEBUG] Rejecting photo due to missing path: {photo_data.get('filename', 'unknown')}")
                     return None
 
+            self.logger.debug(f"[EXTRACT-DEBUG] Returning photo_data for {photo_data['filename']}: needs_export={photo_data.get('needs_export', False)}")
             return photo_data
 
         except (OSError, AttributeError, ValueError) as e:
-            self.logger.warning(f"Error extracting metadata for photo: {e}")
+            self.logger.warning(f"Error extracting metadata for photo {photo.filename if hasattr(photo, 'filename') else 'unknown'}: {e}")
             return None
         except Exception as e:
             raise PhotoMetadataError(f"Unexpected error extracting photo metadata: {e}")
