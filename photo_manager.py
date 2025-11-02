@@ -472,10 +472,31 @@ class PhotoManager:
             # Handle photos/videos that need to be exported from Apple Photos
             if not photo_data['path'] or photo_data['path'] == '':
                 self.logger.debug(f"[EXTRACT-DEBUG] {photo_data['filename']}: path is empty, media_type={media_type}, hasattr(export)={hasattr(photo, 'export')}")
+                
+                # Check if photo is missing (in iCloud but not downloadable)
+                is_missing = getattr(photo, 'ismissing', False)
+                if is_missing:
+                    # Try to use derivative/thumbnail as fallback for missing photos
+                    if hasattr(photo, 'path_derivatives') and photo.path_derivatives:
+                        import os
+                        # Use the largest derivative (usually the last one)
+                        for derivative_path in reversed(photo.path_derivatives):
+                            if os.path.exists(derivative_path):
+                                photo_data['path'] = derivative_path
+                                photo_data['is_derivative'] = True
+                                self.logger.debug(f"[EXTRACT-DEBUG] Using derivative for missing {media_type}: {photo_data.get('filename', 'unknown')} -> {os.path.basename(derivative_path)}")
+                                break
+                        
+                        # If we found a derivative, use it
+                        if photo_data.get('path'):
+                            return photo_data
+                    
+                    # No derivatives available, reject the photo
+                    self.logger.debug(f"[EXTRACT-DEBUG] Rejecting {media_type} - ismissing=True and no derivatives available: {photo_data.get('filename', 'unknown')}")
+                    return None
+                
                 if hasattr(photo, 'export'):
                     # For photos/videos without direct paths, we'll handle export during display
-                    # Note: We no longer check ismissing - let osxphotos attempt export
-                    # If media is truly unavailable, export will fail gracefully
                     photo_data['needs_export'] = True
                     photo_data['osxphoto_object'] = photo  # Store reference for export
                     self.logger.debug(f"[EXTRACT-DEBUG] {media_type} needs export: {photo_data.get('filename', 'unknown')}")
@@ -704,6 +725,76 @@ class PhotoManager:
         export_thread = threading.Thread(target=export_videos_background, daemon=True)
         export_thread.start()
         self.logger.info(f"Started background video pre-export for up to {max_exports} videos")
+    
+    def _export_photo_temporarily(self, photo_data: Dict[str, Any]) -> Optional[str]:
+        """Export a photo from Apple Photos (iCloud) to a temporary location with caching."""
+        if not photo_data.get('needs_export'):
+            self.logger.debug(f"[EXPORT-DEBUG] Photo does not need export: needs_export={photo_data.get('needs_export')}")
+            return None
+        if not photo_data.get('osxphoto_object'):
+            self.logger.error(f"[EXPORT-DEBUG] No osxphoto_object found in photo data")
+            return None
+            
+        try:
+            import tempfile
+            import os
+            import hashlib
+            
+            osxphoto = photo_data['osxphoto_object']
+            
+            # Create persistent cache directory for photo exports
+            cache_dir = os.path.join(os.path.expanduser('~'), '.photo_slideshow_cache', 'photos')
+            os.makedirs(cache_dir, exist_ok=True)
+            
+            # Generate cache filename based on photo UUID
+            photo_uuid = photo_data.get('uuid', '')
+            if not photo_uuid:
+                # Fallback to filename hash if no UUID
+                filename = photo_data.get('filename', 'unknown')
+                photo_uuid = hashlib.md5(filename.encode()).hexdigest()
+            
+            # Get original filename extension
+            original_filename = photo_data.get('filename', 'photo.jpg')
+            file_ext = os.path.splitext(original_filename)[1] or '.jpg'
+            
+            # Check if already cached
+            cached_path = os.path.join(cache_dir, f"{photo_uuid}{file_ext}")
+            if os.path.exists(cached_path) and os.path.getsize(cached_path) > 0:
+                self.logger.debug(f"Using cached photo: {cached_path}")
+                photo_data['path'] = cached_path
+                photo_data['needs_export'] = False
+                return cached_path
+            
+            # Export with timing measurement
+            import time
+            start_time = time.time()
+            self.logger.info(f"Exporting photo from iCloud: {photo_data.get('filename', 'unknown')}...")
+            
+            # Export to cache directory with UUID filename
+            self.logger.debug(f"[EXPORT-DEBUG] About to call osxphoto.export() with cache_dir={cache_dir}, filename={photo_uuid}{file_ext}")
+            export_paths = osxphoto.export(cache_dir, filename=f"{photo_uuid}{file_ext}", overwrite=True)
+            self.logger.debug(f"[EXPORT-DEBUG] osxphoto.export() returned: {export_paths}")
+            
+            export_time = time.time() - start_time
+            
+            if export_paths:
+                exported_path = export_paths[0]
+                file_size = os.path.getsize(exported_path) if os.path.exists(exported_path) else 0
+                self.logger.info(f"Photo exported from iCloud in {export_time:.2f}s ({file_size} bytes): {exported_path}")
+                
+                # Update photo_data with exported path for future use
+                photo_data['path'] = exported_path
+                photo_data['needs_export'] = False
+                return exported_path
+            else:
+                self.logger.warning(f"Failed to export photo from iCloud: {photo_data.get('filename', 'unknown')} - export_paths was empty")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Error exporting photo from iCloud {photo_data.get('filename', 'unknown')}: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return None
     
     def _export_video_temporarily(self, photo_data: Dict[str, Any]) -> Optional[str]:
         """Export a video from Apple Photos to a temporary location with caching."""

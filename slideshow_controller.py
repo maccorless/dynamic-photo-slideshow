@@ -466,7 +466,7 @@ class SlideshowController:
             # Display the slide content (photos/videos)
             result = self._display_slide_content(slide)
             slide_type = slide.get('type', 'unknown')
-            self.logger.info(f"[DISPLAY] Displayed {slide_type} slide: success={result}")
+            self.logger.debug(f"[DISPLAY] Displayed {slide_type} slide: success={result}")
             
             # CRITICAL: If display failed (especially for videos), skip to next slide
             if not result:
@@ -500,7 +500,7 @@ class SlideshowController:
                 self._start_timer_manager()
             elif slide_type == 'video':
                 # Video will start timer when ready (handled by video display manager)
-                self.logger.info(f"[TIMER-MGR] Video slide - timer will start when ready")
+                self.logger.debug(f"[TIMER-MGR] Video slide - timer will start when ready")
             else:
                 # Slideshow is paused - timer manager created but not started
                 self.logger.info(f"[TIMER-MGR] Timer manager created but not started - paused")

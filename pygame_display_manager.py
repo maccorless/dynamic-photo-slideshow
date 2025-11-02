@@ -123,6 +123,26 @@ class PygameDisplayManager:
         """Display a single photo with overlays."""
         try:
             photo_path = photo_data.get('path')
+            
+            # Handle photos that need to be exported from iCloud
+            if (not photo_path or not os.path.exists(photo_path)) and photo_data.get('needs_export'):
+                self.logger.info(f"[SINGLE-DISPLAY] Photo needs export from iCloud, attempting download...")
+                if hasattr(self, 'controller') and self.controller and hasattr(self.controller, 'photo_manager'):
+                    exported_path = self.controller.photo_manager._export_photo_temporarily(photo_data)
+                    if exported_path:
+                        self.logger.info(f"[SINGLE-DISPLAY] Successfully exported photo from iCloud: {exported_path}")
+                        photo_path = exported_path
+                        photo_data['path'] = exported_path
+                    else:
+                        self.logger.error(f"[SINGLE-DISPLAY] Failed to export photo from iCloud (filename: {photo_data.get('filename', 'unknown')}, uuid: {photo_data.get('uuid', 'unknown')})")
+                        self._display_error_message(f"Cannot download from iCloud: {os.path.basename(photo_data.get('filename', 'Unknown'))}")
+                        return
+                else:
+                    self.logger.error(f"[SINGLE-DISPLAY] Cannot export photo - no photo_manager available")
+                    self._display_error_message(f"Cannot download from iCloud: {os.path.basename(photo_data.get('filename', 'Unknown'))}")
+                    return
+            
+            # Final check - if still no valid path, show error
             if not photo_path or not os.path.exists(photo_path):
                 self.logger.error(f"Photo path not found: {photo_path}")
                 return
@@ -195,6 +215,11 @@ class PygameDisplayManager:
                 self.logger.error("Paired photos must contain exactly 2 photos")
                 return
             
+            # Debug logging for paired photo display
+            self.logger.debug(f"[PAIRED-DISPLAY] Starting paired photo display")
+            self.logger.debug(f"[PAIRED-DISPLAY] Photo 1: {photo_data_list[0].get('path')} (filename: {photo_data_list[0].get('filename', 'unknown')}, uuid: {photo_data_list[0].get('uuid', 'unknown')})")
+            self.logger.debug(f"[PAIRED-DISPLAY] Photo 2: {photo_data_list[1].get('path')} (filename: {photo_data_list[1].get('filename', 'unknown')}, uuid: {photo_data_list[1].get('uuid', 'unknown')})")
+            
             # Clear screen
             self.screen.fill(self.BLACK)
             
@@ -204,17 +229,39 @@ class PygameDisplayManager:
             
             for i, photo_data in enumerate(photo_data_list):
                 photo_path = photo_data.get('path')
+                
+                # Handle photos that need to be exported from iCloud
+                if (not photo_path or not os.path.exists(photo_path)) and photo_data.get('needs_export'):
+                    self.logger.info(f"[PAIRED-DISPLAY] Photo {i+1} needs export from iCloud, attempting download...")
+                    if hasattr(self, 'controller') and self.controller and hasattr(self.controller, 'photo_manager'):
+                        exported_path = self.controller.photo_manager._export_photo_temporarily(photo_data)
+                        if exported_path:
+                            self.logger.info(f"[PAIRED-DISPLAY] Successfully exported photo {i+1} from iCloud: {exported_path}")
+                            photo_path = exported_path
+                            photo_data['path'] = exported_path
+                        else:
+                            self.logger.error(f"[PAIRED-DISPLAY] Failed to export photo {i+1} from iCloud (filename: {photo_data.get('filename', 'unknown')}, uuid: {photo_data.get('uuid', 'unknown')})")
+                            continue
+                    else:
+                        self.logger.error(f"[PAIRED-DISPLAY] Cannot export photo {i+1} - no photo_manager available")
+                        continue
+                
+                # Final check - if still no valid path, skip this photo
                 if not photo_path or not os.path.exists(photo_path):
+                    self.logger.error(f"[PAIRED-DISPLAY] Photo {i+1} path not found or doesn't exist: {photo_path} (filename: {photo_data.get('filename', 'unknown')}, uuid: {photo_data.get('uuid', 'unknown')})")
                     continue
                 
                 # Load and process image with HEIC support
                 try:
                     pil_image = Image.open(photo_path)
+                    self.logger.debug(f"[PAIRED-DISPLAY] Successfully loaded photo {i+1}: {os.path.basename(photo_path)}")
+                    self.logger.debug(f"[PAIRED-DISPLAY] PIL image {i+1} mode={pil_image.mode}, size={pil_image.size}")
                 except Exception as e:
                     if photo_path.lower().endswith('.heic') and not HEIC_SUPPORTED:
-                        self.logger.error(f"HEIC support not available for: {os.path.basename(photo_path)}")
+                        self.logger.error(f"[PAIRED-DISPLAY] HEIC support not available for photo {i+1}: {os.path.basename(photo_path)}")
                         continue
                     else:
+                        self.logger.error(f"[PAIRED-DISPLAY] Failed to load photo {i+1}: {e}")
                         raise e
                 
                 # Handle rotation
@@ -242,6 +289,7 @@ class PygameDisplayManager:
                 # Convert to pygame surface
                 image_string = pil_image.tobytes()
                 pygame_image = pygame.image.fromstring(image_string, pil_image.size, pil_image.mode)
+                self.logger.debug(f"[PAIRED-DISPLAY] Pygame surface {i+1} created: {pygame_image.get_size()}")
                 
                 # Calculate position (left or right half)
                 if i == 0:  # Left photo
@@ -253,6 +301,7 @@ class PygameDisplayManager:
                 
                 # Display image
                 self.screen.blit(pygame_image, (x, y))
+                self.logger.debug(f"[PAIRED-DISPLAY] Blitted photo {i+1} at position ({x}, {y})")
             
             # Add overlays for each photo individually with proper positioning
             for i, photo_data in enumerate(photo_data_list):
@@ -297,6 +346,7 @@ class PygameDisplayManager:
             
             # Update display
             pygame.display.flip()
+            self.logger.debug(f"[PAIRED-DISPLAY] Completed paired photo display")
             
         except Exception as e:
             self.logger.error(f"Error displaying paired photos: {e}")
