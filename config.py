@@ -17,14 +17,10 @@ class SlideshowConfig:
     # Default configuration values
     DEFAULT_CONFIG = {
         "album_name": "All Photos",
-        "filter_by_people": False,
-        "filter_people_names": [],
-        "filter_by_places": [],
-        "filter_by_keywords": [],
-        "people_filter_logic": "OR",
-        "places_filter_logic": "OR",
-        "overall_filter_logic": "AND",
-        "min_people_count": 1,
+        "FILTER_PEOPLE": [],
+        "FILTER_PLACES": [],
+        "FILTER_KEYWORD": [],
+        "FILTER_AND_OR": "AND",
         "max_photos_limit": 500,
         "shuffle_photos": True,
         "PHOTO_TIMER": 10,
@@ -84,9 +80,7 @@ class SlideshowConfig:
         "OVERLAY_PLACEMENT": ["TOP", "BOTTOM"],
         "OVERLAY_ALIGNMENT": ["LEFT", "CENTER", "RIGHT"],
         "TRANSITION_EFFECT": ["fade", "crossfade", "cut"],
-        "people_filter_logic": ["AND", "OR"],
-        "places_filter_logic": ["AND", "OR"],
-        "overall_filter_logic": ["AND", "OR"]
+        "FILTER_AND_OR": ["AND", "OR"]
     }
     
     def __init__(self, path_config: Optional[PathConfig] = None):
@@ -155,7 +149,7 @@ class SlideshowConfig:
         elif key == "max_photos_limit":
             # 0 means no limit, so allow >= 0
             return isinstance(value, int) and value >= 0
-        elif key in ["min_people_count", "PHOTO_TIMER", 
+        elif key in ["PHOTO_TIMER",
                      "CACHE_SIZE_LIMIT_GB", "max_recent_photos", "fallback_photo_limit",
                      "min_fallback_photos", "progress_log_interval", "download_batch_size",
                      "cache_refresh_check_interval"]:

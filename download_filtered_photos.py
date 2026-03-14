@@ -70,12 +70,12 @@ class FilteredPhotoDownloader:
         photo_manager = PhotoManager(self.config)
         
         # Temporarily modify config for filtering
-        original_people = self.config.get('filter_people_names', [])
+        original_people = self.config.get('FILTER_PEOPLE', [])
         if people_names:
             # Create a temporary config dict with the people filter
             temp_config = SlideshowConfig()
             temp_config.load_config()
-            temp_config.config['filter_people_names'] = people_names
+            temp_config.config['FILTER_PEOPLE'] = people_names
             photo_manager = PhotoManager(temp_config)
             self.logger.info(f"Filtering by people: {people_names}")
         

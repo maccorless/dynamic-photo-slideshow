@@ -134,11 +134,10 @@ class PhotoManager:
         try:
             photos = []
             
-            # Check if we should use filters instead of album
+            # Check if any filters are set (non-empty arrays)
             use_filters = (
-                self.config.get('filter_by_people', False) or 
                 self.config.get('FILTER_PEOPLE', []) or
-                self.config.get('FILTER_PLACES', []) or 
+                self.config.get('FILTER_PLACES', []) or
                 self.config.get('FILTER_KEYWORD', [])
             )
             
@@ -234,82 +233,92 @@ class PhotoManager:
             raise PhotoLoadError(f"Unexpected error loading photos: {e}")
     
     def _load_photos_with_filters(self, log_search: bool = True) -> List[Dict[str, Any]]:
-        """Load photos using direct osxphotos search for people filtering."""
+        """Load photos using configured filters (people, places, keywords).
+
+        Filter logic (FILTER_AND_OR):
+        - AND: photo must match ALL active filter types (e.g., person AND place)
+        - OR:  photo must match ANY active filter type
+        Within a single filter type, multiple values always use OR
+        (e.g., ["Alice", "Bob"] matches photos with Alice OR Bob).
+        """
         try:
             # Get filter configurations
             filter_people_names = self.config.get('FILTER_PEOPLE', [])
             filter_places = self.config.get('FILTER_PLACES', [])
             filter_keywords = self.config.get('FILTER_KEYWORD', [])
-            max_photos = self.config.get('max_photos_limit')
-            
-            # Get total library count first
-            total_library_count = len(list(self.photos_db.photos()))
+            filter_logic = self.config.get('FILTER_AND_OR', 'AND')
+
+            # Log active filters
             if log_search:
+                total_library_count = len(list(self.photos_db.photos()))
                 self.logger.info(f"Photo library: {total_library_count} total items (photos + videos)")
-            
-            # Use direct osxphotos search for people if specified
+                filters = []
+                if filter_people_names:
+                    filters.append(f"people={filter_people_names}")
+                if filter_places:
+                    filters.append(f"places={filter_places}")
+                if filter_keywords:
+                    filters.append(f"keywords={filter_keywords}")
+                filter_str = f" {filter_logic} ".join(filters) if filters else "None"
+                self.logger.info(f"Filters: {filter_str}")
+
+            # Step 1: Build people UUID set via osxphotos direct search
+            people_uuids = None
             if filter_people_names:
-                if log_search:
-                    # Build filter description
-                    filters = []
-                    if filter_people_names:
-                        filters.append(f"FILTER_PEOPLE={filter_people_names}")
-                    if filter_places:
-                        filters.append(f"FILTER_PLACES={filter_places}")
-                    if filter_keywords:
-                        filters.append(f"FILTER_KEYWORDS={filter_keywords}")
-                    filter_str = ", ".join(filters) if filters else "None"
-                    self.logger.info(f"Filters applied: {filter_str}")
-                
-                # Get photos using direct search
-                filtered_photos = []
+                people_uuids = set()
                 for person_name in filter_people_names:
                     try:
                         person_photos = self.photos_db.photos(persons=[person_name.strip()])
-                        filtered_photos.extend(person_photos)
+                        people_uuids.update(p.uuid for p in person_photos)
                         self.logger.debug(f"Found {len(person_photos)} photos with person '{person_name}'")
                     except (OSError, AttributeError, ValueError) as e:
                         self.logger.warning(f"Error searching for person '{person_name}': {e}")
-                
-                # Remove duplicates while preserving order
-                seen_uuids = set()
-                unique_photos = []
-                for photo in filtered_photos:
-                    if photo.uuid not in seen_uuids:
-                        unique_photos.append(photo)
-                        seen_uuids.add(photo.uuid)
-                
-                all_photos = unique_photos
-                self.logger.debug(f"After people filtering: {len(all_photos)} unique photos")
+                self.logger.debug(f"People filter: {len(people_uuids)} unique photos")
+
+            # Determine candidate set:
+            # - AND mode with only people filter: use people-matched photos (faster)
+            # - OR mode with multiple filters: must scan full library
+            has_other_filters = bool(filter_places or filter_keywords)
+            if filter_people_names and not (filter_logic == 'OR' and has_other_filters):
+                # AND mode or people-only: start from people-matched photos
+                all_photos = [p for p in self.photos_db.photos() if p.uuid in people_uuids]
             else:
                 all_photos = list(self.photos_db.photos())
-                if log_search:
-                    self.logger.info(f"Filters applied: None")
-            
-            # Apply other filters and extract metadata first, then implement proper temporal distribution
+
+            # Step 2: Apply places and keywords filters with FILTER_AND_OR logic
             photos = []
             processed_count = 0
             rejected_count = 0
             for photo in all_photos:
                 try:
-                    # Check places and keywords filters if needed
-                    places_match = self._check_places_filter(photo, filter_places, 'OR') if filter_places else True
-                    keywords_match = self._check_keywords_filter(photo, filter_keywords) if filter_keywords else True
-                    
-                    if places_match and keywords_match:
-                        photo_data = self._extract_photo_metadata(photo)  # Hidden filtering happens here
+                    # Evaluate each active filter type
+                    results = []
+                    if filter_people_names:
+                        results.append(photo.uuid in people_uuids if people_uuids else False)
+                    if filter_places:
+                        results.append(self._check_places_filter(photo, filter_places, 'OR'))
+                    if filter_keywords:
+                        results.append(self._check_keywords_filter(photo, filter_keywords))
+
+                    # Combine results using configured logic
+                    if filter_logic == 'AND':
+                        passes_filter = all(results)
+                    else:  # OR
+                        passes_filter = any(results)
+
+                    if passes_filter:
+                        photo_data = self._extract_photo_metadata(photo)
                         if photo_data:
                             photos.append(photo_data)
                         else:
                             rejected_count += 1
-                            
+
                 except (AttributeError, OSError, ValueError) as e:
                     self.logger.debug(f"Error filtering photo: {e}")
                     rejected_count += 1
                     continue
-                
+
                 processed_count += 1
-                # Log progress for large libraries
                 if processed_count % self.config.get('progress_log_interval') == 0:
                     self.logger.debug(f"Processed {processed_count}/{len(all_photos)} photos, found {len(photos)} matches")
             
@@ -341,45 +350,6 @@ class PhotoManager:
             return []
         except Exception as e:
             raise PhotoLoadError(f"Unexpected error applying filters: {e}")
-    
-    def _check_people_filter(self, photo, filter_by_people, filter_people_names, min_people, logic):
-        """Check if photo matches people filter criteria."""
-        if not hasattr(photo, 'persons') or not photo.persons:
-            return False
-        
-        person_count = len(photo.persons)
-        
-        # Check minimum people count
-        if filter_by_people and person_count < min_people:
-            return False
-        
-        # Check specific people names
-        if filter_people_names:
-            photo_people = []
-            for person in photo.persons:
-                try:
-                    if hasattr(person, 'name'):
-                        name = person.name
-                    elif hasattr(person, 'display_name'):
-                        name = person.display_name
-                    else:
-                        name = str(person)
-                    
-                    if name and name != 'None':
-                        photo_people.append(name.lower().strip())
-                except (AttributeError, TypeError):
-                    continue
-            
-            if logic == 'AND':
-                # All specified people must be in the photo
-                return all(any(filter_name.lower() in person_name for person_name in photo_people) 
-                          for filter_name in filter_people_names)
-            else:  # OR
-                # Normal OR logic: any person matches
-                return any(any(filter_name.lower() in person_name for person_name in photo_people) 
-                          for filter_name in filter_people_names)
-        
-        return True
     
     def _check_places_filter(self, photo, filter_places, logic):
         """Check if photo matches places filter with substring matching."""
@@ -636,18 +606,25 @@ class PhotoManager:
             else:
                 all_photos = list(self.photos_db.photos())
             
-            # Apply places, keywords, and hidden filters
+            # Apply places, keywords, and hidden filters using FILTER_AND_OR logic
+            filter_logic = self.config.get('FILTER_AND_OR', 'AND')
             filtered_photos = []
             for photo in all_photos:
                 try:
                     # Skip hidden photos
                     if photo.hidden:
                         continue
-                        
-                    places_match = self._check_places_filter(photo, filter_places, 'OR') if filter_places else True
-                    keywords_match = self._check_keywords_filter(photo, filter_keywords) if filter_keywords else True
-                    
-                    if places_match and keywords_match:
+
+                    results = []
+                    if filter_people_names:
+                        results.append(True)  # Already filtered by people above
+                    if filter_places:
+                        results.append(self._check_places_filter(photo, filter_places, 'OR'))
+                    if filter_keywords:
+                        results.append(self._check_keywords_filter(photo, filter_keywords))
+
+                    passes = all(results) if filter_logic == 'AND' else any(results)
+                    if passes:
                         filtered_photos.append(photo)
                         
                 except Exception as e:

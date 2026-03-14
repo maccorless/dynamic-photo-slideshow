@@ -124,26 +124,26 @@
       "settings": {
         "FILTER_PEOPLE": {
           "type": "array",
-          "label": "People Filter",
-          "description": "List of people names to filter photos. Leave empty for no filter.",
+          "label": "People",
+          "description": "Show photos containing these people (comma-separated names from Apple Photos). Matches any listed person.",
           "default": []
         },
         "FILTER_PLACES": {
           "type": "array",
-          "label": "Places Filter",
-          "description": "List of location names to filter photos. Leave empty for no filter.",
+          "label": "Places",
+          "description": "Show photos from these locations (comma-separated, partial match). Matches any listed place.",
           "default": []
         },
         "FILTER_KEYWORD": {
           "type": "array",
-          "label": "Keywords Filter",
-          "description": "List of keywords to filter photos. Leave empty for no filter.",
+          "label": "Keywords",
+          "description": "Show photos with these Apple Photos keywords (comma-separated). Matches any listed keyword.",
           "default": []
         },
         "FILTER_AND_OR": {
           "type": "enum",
-          "label": "Filter Logic",
-          "description": "How to combine multiple filters: AND requires all filters to match, OR requires any filter to match.",
+          "label": "Combine Filters With",
+          "description": "AND = photo must match all filter types (e.g. person AND place). OR = photo can match any filter type.",
           "default": "AND",
           "options": ["AND", "OR"]
         }
