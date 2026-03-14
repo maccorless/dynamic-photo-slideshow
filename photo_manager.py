@@ -678,20 +678,20 @@ class PhotoManager:
         """Preload video exports in background to reduce latency."""
         if not self.video_support_enabled:
             return
-            
+
         import threading
-        
+
         def export_videos_background():
             """Background thread to export videos."""
             export_count = 0
             for photo in photos:
                 if export_count >= max_exports:
                     break
-                    
-                if (photo.get('media_type') == 'video' and 
-                    photo.get('needs_export') and 
+
+                if (photo.get('media_type') == 'video' and
+                    photo.get('needs_export') and
                     not photo.get('path')):
-                    
+
                     try:
                         self.logger.debug(f"Pre-exporting video: {photo.get('filename')}")
                         exported_path = self._export_video_temporarily(photo)
@@ -700,11 +700,46 @@ class PhotoManager:
                             self.logger.info(f"Pre-exported video {export_count}/{max_exports}: {photo.get('filename')}")
                     except Exception as e:
                         self.logger.error(f"Error pre-exporting video {photo.get('filename')}: {e}")
-        
+
         # Start background export thread
         export_thread = threading.Thread(target=export_videos_background, daemon=True)
         export_thread.start()
         self.logger.info(f"Started background video pre-export for up to {max_exports} videos")
+
+    def prefetch_upcoming_content(self, upcoming_photos: List[Dict[str, Any]], count: int = 3) -> None:
+        """Prefetch iCloud content for upcoming slides in background.
+
+        Exports photos and videos that need iCloud export so they're ready
+        when their slide comes up, reducing visible delay.
+
+        Args:
+            upcoming_photos: List of photo/video dicts that may be shown next
+            count: Maximum number of items to prefetch
+        """
+        import threading
+
+        items_to_prefetch = [
+            p for p in upcoming_photos[:count * 2]  # Check more than needed since some won't need export
+            if p.get('needs_export') and not p.get('path')
+        ][:count]
+
+        if not items_to_prefetch:
+            return
+
+        def prefetch_background():
+            for item in items_to_prefetch:
+                try:
+                    media_type = item.get('media_type', 'photo')
+                    if media_type == 'video':
+                        self._export_video_temporarily(item)
+                    else:
+                        self._export_photo_temporarily(item)
+                except Exception as e:
+                    self.logger.debug(f"Prefetch failed for {item.get('filename', 'unknown')}: {e}")
+
+        thread = threading.Thread(target=prefetch_background, daemon=True)
+        thread.start()
+        self.logger.debug(f"Prefetching {len(items_to_prefetch)} upcoming items in background")
     
     def _export_photo_temporarily(self, photo_data: Dict[str, Any]) -> Optional[str]:
         """Export a photo from Apple Photos (iCloud) to a temporary location with caching."""

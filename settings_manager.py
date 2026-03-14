@@ -214,7 +214,11 @@ class SettingsManager:
         elif setting_type == "enum":
             if value not in setting_schema["options"]:
                 return False
-        
+
+        elif setting_type == "array":
+            if not isinstance(value, list):
+                return False
+
         return True
     
     def save_config(self) -> bool:
@@ -377,8 +381,8 @@ class SettingsManager:
     
     def remove_change_listener(self, listener: callable) -> None:
         """Remove a change listener."""
-        if callback in self._change_listeners:
-            self._change_listeners.remove(callback)
+        if listener in self._change_listeners:
+            self._change_listeners.remove(listener)
     
     def _notify_change(self, group: str, setting: str, new_value: Any, old_value: Any) -> None:
         """Notify all listeners of a setting change."""

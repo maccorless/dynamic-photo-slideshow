@@ -44,6 +44,24 @@
           "description": "Display the photo location on the slide.",
           "default": true,
           "requires_restart": false
+        },
+        "TRANSITION_EFFECT": {
+          "type": "enum",
+          "label": "Transition Effect",
+          "description": "Visual transition between slides. Fade smoothly fades through black. Cut switches instantly.",
+          "default": "fade",
+          "options": ["fade", "cut"],
+          "requires_restart": false
+        },
+        "TRANSITION_DURATION": {
+          "type": "integer",
+          "label": "Transition Duration",
+          "description": "Duration of fade transition in milliseconds. Only applies when transition effect is set to fade.",
+          "default": 500,
+          "min": 100,
+          "max": 2000,
+          "unit": "ms",
+          "requires_restart": false
         }
       }
     },
@@ -55,6 +73,15 @@
           "label": "Enable Video Audio",
           "description": "Play audio when displaying video slides.",
           "default": true
+        },
+        "VIDEO_VOLUME": {
+          "type": "float",
+          "label": "Video Volume",
+          "description": "Volume level for video playback. 0 is muted, 1 is full volume. Defaults to muted for picture frame use.",
+          "default": 0.0,
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.1
         },
         "video_test_mode": {
           "type": "boolean",

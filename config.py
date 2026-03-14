@@ -29,6 +29,7 @@ class SlideshowConfig:
         "OVERLAY_PLACEMENT": "TOP",
         "OVERLAY_ALIGNMENT": "CENTER",
         "TRANSITION_EFFECT": "fade",
+        "TRANSITION_DURATION": 500,  # milliseconds for fade transition
         "CACHE_SIZE_LIMIT_GB": 20,
         "FORCE_CACHE_REFRESH": False,
         "max_recent_photos": 50,
@@ -45,15 +46,12 @@ class SlideshowConfig:
         'video_playback_enabled': True,
         'VIDEO_MAX_TIMER': 15, # seconds - maximum video length to play
         'AUDIO_ENABLED': True, # Enable audio playback for videos
+        'VIDEO_VOLUME': 0.0, # 0.0 = muted, 1.0 = full volume (muted by default for picture frame)
         'video_auto_play': True, # Automatically play videos in slideshow
         'video_loop': False, # Loop videos if shorter than slideshow interval
         'video_thumbnail_enabled': True, # Generate thumbnails for videos
         'video_formats_supported': ['.mp4', '.mov', '.avi', '.mkv', '.wmv'], # Supported formats
         
-        # Video filtering settings
-        'video_person_filter': None, # Person name to filter videos (None for no filter)
-        'video_local_only': True, # Only use locally available videos (not iCloud-only)
-
         # Voice command settings
         'voice_commands_enabled': True,
         'voice_provider': 'google', # Voice recognition provider ('google', 'mock')

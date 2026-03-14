@@ -98,9 +98,12 @@ class SettingsWindow:
             object_id="#tab_container"
         )
         
-        # Create tabs
-        self._create_display_tab()
-        # TODO: Add other tabs in future milestones
+        # Create tabs dynamically from schema
+        schema = self.settings_manager.get_schema()
+        tab_index = 0
+        for group_name, group_data in schema["schema"].items():
+            self._create_tab(group_name, group_data, tab_index)
+            tab_index += 1
         
         # Add OK button at bottom
         button_width = 100
@@ -118,133 +121,177 @@ class SettingsWindow:
         self.is_visible = True
         self.logger.info("Settings window shown")
     
-    def _create_display_tab(self) -> None:
-        """Create the Display settings tab."""
-        # Get schema for display settings
-        schema = self.settings_manager.get_schema()
-        display_schema = schema["schema"]["display"]
-        
-        # Create tab and get the container panel
-        self.tab_container.add_tab("Display", "display_tab")
-        display_tab = self.tab_container.tabs[0]['container']
-        
+    def _create_tab(self, group_name: str, group_data: Dict[str, Any], tab_index: int) -> None:
+        """Create a settings tab for a schema group.
+
+        Args:
+            group_name: Schema group key (e.g., 'display', 'video', 'filters')
+            group_data: Schema group data with 'label' and 'settings'
+            tab_index: Tab index for accessing the container
+        """
+        tab_label = group_data.get("label", group_name.title())
+        tab_id = f"{group_name}_tab"
+        self.tab_container.add_tab(tab_label, tab_id)
+        tab_container = self.tab_container.tabs[tab_index]['container']
+
         # Layout parameters
         y_offset = 20
         label_width = 200
         control_width = 300
         row_height = 50
-        info_icon_size = 20
         spacing = 10
-        
-        # Create settings for each item in display group
-        for setting_name, setting_data in display_schema["settings"].items():
+
+        for setting_name, setting_data in group_data["settings"].items():
+            setting_type = setting_data["type"]
+            current_value = self.settings_manager.get_setting(group_name, setting_name)
+            control = None
+
             # Create label
-            label = pygame_gui.elements.UILabel(
+            pygame_gui.elements.UILabel(
                 relative_rect=pygame.Rect(20, y_offset, label_width, 30),
                 text=setting_data["label"] + ":",
                 manager=self.manager,
-                container=display_tab
+                container=tab_container
             )
-            
-            # Create control based on type
+
             control_x = 20 + label_width + spacing
-            current_value = self.settings_manager.get_setting("display", setting_name)
-            
-            if setting_data["type"] == "integer":
-                # Number input with spinner
+
+            if setting_type == "integer":
                 control = pygame_gui.elements.UITextEntryLine(
                     relative_rect=pygame.Rect(control_x, y_offset, control_width, 30),
                     manager=self.manager,
-                    container=display_tab
+                    container=tab_container
                 )
                 control.set_text(str(current_value))
-                # Store metadata for validation
-                control.setting_group = "display"
+                control.setting_group = group_name
                 control.setting_name = setting_name
                 control.setting_type = "integer"
-                
-            elif setting_data["type"] == "boolean":
-                # Checkbox - show clear ON/OFF state with green checkmark
-                checkbox_text = "✓ ON" if current_value else "OFF"
+
+            elif setting_type == "float":
+                control = pygame_gui.elements.UITextEntryLine(
+                    relative_rect=pygame.Rect(control_x, y_offset, control_width, 30),
+                    manager=self.manager,
+                    container=tab_container
+                )
+                control.set_text(str(current_value))
+                control.setting_group = group_name
+                control.setting_name = setting_name
+                control.setting_type = "float"
+
+            elif setting_type == "boolean":
+                checkbox_text = "\u2713 ON" if current_value else "OFF"
                 checkbox_id = "#checkbox_on" if current_value else "#checkbox_off"
                 control = pygame_gui.elements.UIButton(
                     relative_rect=pygame.Rect(control_x, y_offset, 100, 30),
                     text=checkbox_text,
                     manager=self.manager,
-                    container=display_tab,
+                    container=tab_container,
                     object_id=checkbox_id
                 )
-                control.setting_group = "display"
+                control.setting_group = group_name
                 control.setting_name = setting_name
                 control.setting_type = "boolean"
                 control.setting_value = current_value
-                
-            elif setting_data["type"] == "enum":
-                # Dropdown
+
+            elif setting_type == "enum":
                 control = pygame_gui.elements.UIDropDownMenu(
                     options_list=setting_data["options"],
-                    starting_option=current_value,
+                    starting_option=str(current_value),
                     relative_rect=pygame.Rect(control_x, y_offset, control_width, 30),
                     manager=self.manager,
-                    container=display_tab
+                    container=tab_container
                 )
-                control.setting_group = "display"
+                control.setting_group = group_name
                 control.setting_name = setting_name
                 control.setting_type = "enum"
-            
-            # Create info icon with tooltip - make it clearly different from controls
-            info_x = control_x + control_width + spacing
-            tooltip_text = setting_data["description"]
-            if "default" in setting_data:
-                tooltip_text += f"\n\nDefault: {setting_data['default']}"
-            if "min" in setting_data and "max" in setting_data:
-                tooltip_text += f"\nRange: {setting_data['min']}-{setting_data['max']}"
-            if "unit" in setting_data:
-                tooltip_text += f" {setting_data['unit']}"
-            
-            # Info icon - use button but make it look like an icon
-            info_button = pygame_gui.elements.UIButton(
-                relative_rect=pygame.Rect(info_x, y_offset + 3, 24, 24),
-                text="?",  # Question mark is clearer than ⓘ
-                manager=self.manager,
-                container=display_tab,
-                tool_tip_text=tooltip_text,
-                object_id="#info_icon"
-            )
-            
-            # Store widget reference
-            widget_key = f"display.{setting_name}"
-            self.setting_widgets[widget_key] = control
-            
-            # Move to next row
+
+            elif setting_type == "string":
+                control = pygame_gui.elements.UITextEntryLine(
+                    relative_rect=pygame.Rect(control_x, y_offset, control_width, 30),
+                    manager=self.manager,
+                    container=tab_container
+                )
+                control.set_text(str(current_value) if current_value else "")
+                control.setting_group = group_name
+                control.setting_name = setting_name
+                control.setting_type = "string"
+
+            elif setting_type == "array":
+                # Array displayed as comma-separated text
+                control = pygame_gui.elements.UITextEntryLine(
+                    relative_rect=pygame.Rect(control_x, y_offset, control_width, 30),
+                    manager=self.manager,
+                    container=tab_container
+                )
+                display_value = ", ".join(current_value) if isinstance(current_value, list) else str(current_value)
+                control.set_text(display_value)
+                control.setting_group = group_name
+                control.setting_name = setting_name
+                control.setting_type = "array"
+
+            # Info icon with tooltip
+            if control:
+                info_x = control_x + control_width + spacing
+                tooltip_text = setting_data["description"]
+                if "default" in setting_data:
+                    tooltip_text += f"\n\nDefault: {setting_data['default']}"
+                if "min" in setting_data and "max" in setting_data:
+                    tooltip_text += f"\nRange: {setting_data['min']}-{setting_data['max']}"
+                if "unit" in setting_data:
+                    tooltip_text += f" {setting_data['unit']}"
+
+                pygame_gui.elements.UIButton(
+                    relative_rect=pygame.Rect(info_x, y_offset + 3, 24, 24),
+                    text="?",
+                    manager=self.manager,
+                    container=tab_container,
+                    tool_tip_text=tooltip_text,
+                    object_id="#info_icon"
+                )
+
+                widget_key = f"{group_name}.{setting_name}"
+                self.setting_widgets[widget_key] = control
+
             y_offset += row_height
-        
-        self.logger.info("Display tab created with all settings")
+
+        self.logger.info(f"{tab_label} tab created with {len(group_data['settings'])} settings")
     
     def _save_pending_changes(self) -> None:
         """Save any pending changes from text entry fields before closing."""
         if not self.manager:
             return
-        
-        # Iterate through all UI elements and save text entry values
+
         for widget_key, widget in self.setting_widgets.items():
-            if hasattr(widget, 'setting_type') and widget.setting_type == "integer":
-                if isinstance(widget, pygame_gui.elements.UITextEntryLine):
-                    # Save the current value
-                    try:
-                        group = widget.setting_group
-                        setting = widget.setting_name
-                        new_value = int(widget.get_text())
-                        
-                        # Get current value to check if changed
-                        old_value = self.settings_manager.get_setting(group, setting)
-                        if new_value != old_value:
-                            self.logger.info(f"Saving pending change: {group}.{setting} = {new_value}")
-                            success = self.settings_manager.set_setting(group, setting, new_value)
-                            if success:
-                                self._apply_live_setting(group, setting, new_value)
-                    except (ValueError, AttributeError) as e:
-                        self.logger.debug(f"Skipping widget {widget_key}: {e}")
+            if not isinstance(widget, pygame_gui.elements.UITextEntryLine):
+                continue
+            if not hasattr(widget, 'setting_type'):
+                continue
+
+            try:
+                group = widget.setting_group
+                setting = widget.setting_name
+                stype = widget.setting_type
+                text = widget.get_text()
+                old_value = self.settings_manager.get_setting(group, setting)
+
+                if stype == "integer":
+                    new_value = int(text)
+                elif stype == "float":
+                    new_value = float(text)
+                elif stype == "string":
+                    new_value = text
+                elif stype == "array":
+                    new_value = [s.strip() for s in text.split(",") if s.strip()]
+                else:
+                    continue
+
+                if new_value != old_value:
+                    self.logger.info(f"Saving pending change: {group}.{setting} = {new_value}")
+                    success = self.settings_manager.set_setting(group, setting, new_value)
+                    if success:
+                        self._apply_live_setting(group, setting, new_value)
+            except (ValueError, AttributeError) as e:
+                self.logger.debug(f"Skipping widget {widget_key}: {e}")
     
     def hide(self) -> None:
         """Hide the settings window."""
@@ -270,7 +317,12 @@ class SettingsWindow:
         
         # Clear the setting widgets dictionary
         self.setting_widgets.clear()
-        
+
+        # Reload photos if filter settings changed
+        if getattr(self, '_filter_reload_pending', False):
+            self._filter_reload_pending = False
+            self._reload_photos_with_new_filters()
+
         # Call close callback if set (this will trigger resume)
         if self.on_close_callback:
             self.on_close_callback()
@@ -315,11 +367,22 @@ class SettingsWindow:
                 self._handle_checkbox_toggle(event.ui_element)
                 return True
         
-        # Handle text entry changes (for integer inputs)
+        # Handle text entry changes (for integer, float, string, array inputs)
         if event.type == pygame_gui.UI_TEXT_ENTRY_FINISHED:
-            if hasattr(event.ui_element, 'setting_type') and event.ui_element.setting_type == "integer":
-                self._handle_integer_change(event.ui_element)
-                return True
+            if hasattr(event.ui_element, 'setting_type'):
+                stype = event.ui_element.setting_type
+                if stype == "integer":
+                    self._handle_integer_change(event.ui_element)
+                    return True
+                elif stype == "float":
+                    self._handle_float_change(event.ui_element)
+                    return True
+                elif stype == "string":
+                    self._handle_string_change(event.ui_element)
+                    return True
+                elif stype == "array":
+                    self._handle_array_change(event.ui_element)
+                    return True
         
         # Handle dropdown changes (for enum inputs)
         if event.type == pygame_gui.UI_DROP_DOWN_MENU_CHANGED:
@@ -385,11 +448,61 @@ class SettingsWindow:
             text_entry.set_text(str(old_value))
             self.logger.warning(f"Invalid integer for {group}.{setting}, restored to {old_value}")
     
+    def _handle_float_change(self, text_entry) -> None:
+        """Handle float input change."""
+        group = text_entry.setting_group
+        setting = text_entry.setting_name
+
+        try:
+            new_value = float(text_entry.get_text())
+            success = self.settings_manager.set_setting(group, setting, new_value)
+            if success:
+                self.logger.info(f"Setting changed: {group}.{setting} = {new_value}")
+                self._apply_live_setting(group, setting, new_value)
+            else:
+                old_value = self.settings_manager.get_setting(group, setting)
+                text_entry.set_text(str(old_value))
+                self.logger.warning(f"Invalid value for {group}.{setting}, restored to {old_value}")
+        except ValueError:
+            old_value = self.settings_manager.get_setting(group, setting)
+            text_entry.set_text(str(old_value))
+            self.logger.warning(f"Invalid float for {group}.{setting}, restored to {old_value}")
+
+    def _handle_string_change(self, text_entry) -> None:
+        """Handle string input change."""
+        group = text_entry.setting_group
+        setting = text_entry.setting_name
+        new_value = text_entry.get_text()
+
+        success = self.settings_manager.set_setting(group, setting, new_value)
+        if success:
+            self.logger.info(f"Setting changed: {group}.{setting} = {new_value}")
+            self._apply_live_setting(group, setting, new_value)
+        else:
+            self.logger.error(f"Failed to set {group}.{setting} = {new_value}")
+
+    def _handle_array_change(self, text_entry) -> None:
+        """Handle array input change (comma-separated values)."""
+        group = text_entry.setting_group
+        setting = text_entry.setting_name
+        text = text_entry.get_text()
+        new_value = [s.strip() for s in text.split(",") if s.strip()]
+
+        success = self.settings_manager.set_setting(group, setting, new_value)
+        if success:
+            self.logger.info(f"Setting changed: {group}.{setting} = {new_value}")
+            self._apply_live_setting(group, setting, new_value)
+        else:
+            self.logger.error(f"Failed to set {group}.{setting} = {new_value}")
+
     def _handle_enum_change(self, dropdown) -> None:
         """Handle dropdown selection change."""
         group = dropdown.setting_group
         setting = dropdown.setting_name
         new_value = dropdown.selected_option
+        # pygame_gui may return a tuple (text, id) - extract text
+        if isinstance(new_value, tuple):
+            new_value = new_value[0]
         
         # Save to settings manager (auto-saves)
         success = self.settings_manager.set_setting(group, setting, new_value)
@@ -403,7 +516,9 @@ class SettingsWindow:
     def _apply_live_setting(self, group: str, setting: str, value: Any) -> None:
         """
         Apply settings that can be changed without restart.
-        
+        Updates the controller's config so changes take effect on next slide.
+        Filter changes trigger an immediate photo reload.
+
         Args:
             group: Setting group name
             setting: Setting name
@@ -412,28 +527,46 @@ class SettingsWindow:
         if not self.controller:
             self.logger.debug(f"No controller available, cannot apply {group}.{setting} live")
             return
-        
-        # Only apply Display settings live (all Display settings support live updates)
-        if group == 'display':
-            try:
-                if setting == 'PHOTO_TIMER':
-                    self.controller.config.set('PHOTO_TIMER', value)
-                    self.logger.info(f"✅ Applied live: PHOTO_TIMER = {value}s (takes effect on next slide)")
-                elif setting == 'VIDEO_MAX_TIMER':
-                    self.controller.config.set('VIDEO_MAX_TIMER', value)
-                    self.logger.info(f"✅ Applied live: VIDEO_MAX_TIMER = {value}s (takes effect on next video)")
-                elif setting == 'show_countdown_timer':
-                    self.controller.config.set('show_countdown_timer', value)
-                    self.logger.info(f"✅ Applied live: show_countdown_timer = {value} (takes effect immediately)")
-                elif setting == 'show_date_overlay':
-                    self.controller.config.set('show_date_overlay', value)
-                    self.logger.info(f"✅ Applied live: show_date_overlay = {value} (takes effect on next slide)")
-                elif setting == 'show_location_overlay':
-                    self.controller.config.set('show_location_overlay', value)
-                    self.logger.info(f"✅ Applied live: show_location_overlay = {value} (takes effect on next slide)")
-            except Exception as e:
-                self.logger.error(f"Error applying live setting {group}.{setting}: {e}")
-    
+
+        try:
+            # Apply directly to the controller's config — all settings take effect on next slide
+            self.controller.config.set(setting, value)
+            self.logger.info(f"Applied live: {setting} = {value} (takes effect on next slide)")
+
+            # Filter changes require reloading the photo list
+            if group == 'filters':
+                self._schedule_filter_reload()
+        except Exception as e:
+            self.logger.error(f"Error applying live setting {group}.{setting}: {e}")
+
+    def _schedule_filter_reload(self) -> None:
+        """Schedule a photo reload after filter settings change.
+        Uses a flag so multiple filter changes batch into one reload on close."""
+        self._filter_reload_pending = True
+        self.logger.info("Filter change detected — photos will reload when settings window closes")
+
+    def _reload_photos_with_new_filters(self) -> None:
+        """Reload photos from Apple Photos using updated filter settings."""
+        if not self.controller:
+            return
+        try:
+            import threading
+            self.logger.info("Reloading photos with updated filters...")
+
+            def reload_in_background():
+                try:
+                    pm = self.controller.photo_manager
+                    new_photos = pm._load_photos_with_filters(log_search=True)
+                    pm.photos_cache = new_photos
+                    self.logger.info(f"Filter reload complete: {len(new_photos)} photos match new filters")
+                except Exception as e:
+                    self.logger.error(f"Error reloading photos with new filters: {e}")
+
+            thread = threading.Thread(target=reload_in_background, daemon=True)
+            thread.start()
+        except Exception as e:
+            self.logger.error(f"Error starting filter reload: {e}")
+
     def update(self, time_delta: float) -> None:
         """
         Update the settings window.

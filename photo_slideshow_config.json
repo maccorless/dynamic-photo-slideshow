@@ -7,8 +7,11 @@
   "show_countdown_timer": true,
   "show_date_overlay": true,
   "show_location_overlay": true,
+  "TRANSITION_EFFECT": "fade",
+  "TRANSITION_DURATION": 500,
 
   "AUDIO_ENABLED": true,
+  "VIDEO_VOLUME": 0.0,
   "video_test_mode": false,
 
   "PORTRAIT_PHOTO_PAIRING": true,

@@ -12,6 +12,25 @@ from typing import Dict, Any, Optional, List, Union
 from PIL import Image
 import numpy as np
 from pyvidplayer2 import Video
+from pyvidplayer2.ffmpeg_reader import FFMPEGReader
+
+# Monkey-patch FFMPEGReader to add -noautorotate.
+# Without this, ffmpeg auto-rotates video frames based on display matrix metadata
+# (e.g. iPhone portrait videos), but ffprobe reports the un-rotated dimensions.
+# The dimension mismatch causes horizontal banding/distortion.
+_original_get_command = FFMPEGReader._get_command
+
+def _patched_get_command(self, index=None):
+    cmd = _original_get_command(self, index)
+    # Insert -noautorotate before -i
+    try:
+        i_idx = cmd.index("-i")
+        cmd.insert(i_idx, "-noautorotate")
+    except ValueError:
+        pass
+    return cmd
+
+FFMPEGReader._get_command = _patched_get_command
 
 from slideshow_exceptions import VideoProcessingError, DisplayError
 from settings_manager import SettingsManager
@@ -89,6 +108,41 @@ class PygameDisplayManager:
         
         self.logger.debug(f"Pygame Display Manager initialized: {self.screen_width}x{self.screen_height}")
 
+    def fade_out(self, duration_ms: int = 500) -> None:
+        """Fade the current screen to black."""
+        if duration_ms <= 0:
+            self.screen.fill(self.BLACK)
+            pygame.display.flip()
+            return
+        overlay = pygame.Surface((self.screen_width, self.screen_height))
+        overlay.fill(self.BLACK)
+        steps = max(1, duration_ms // 16)  # ~60fps steps
+        for i in range(steps + 1):
+            alpha = int(255 * i / steps)
+            overlay.set_alpha(alpha)
+            # Redraw current screen content underneath
+            self.screen.blit(overlay, (0, 0))
+            pygame.display.flip()
+            pygame.time.wait(16)
+
+    def fade_in(self, duration_ms: int = 500) -> None:
+        """Fade in the current screen content from black.
+        Call this AFTER rendering the new slide to the screen surface.
+        """
+        if duration_ms <= 0:
+            pygame.display.flip()
+            return
+        # Capture the rendered slide
+        snapshot = self.screen.copy()
+        steps = max(1, duration_ms // 16)
+        for i in range(steps + 1):
+            alpha = int(255 * i / steps)
+            self.screen.fill(self.BLACK)
+            snapshot.set_alpha(alpha)
+            self.screen.blit(snapshot, (0, 0))
+            pygame.display.flip()
+            pygame.time.wait(16)
+
     def show_loading_screen(self, message: str = "Loading...") -> None:
         """Display a centered loading message on a black background."""
         self.screen.fill(self.BLACK)
@@ -114,10 +168,15 @@ class PygameDisplayManager:
         # Handle None location_string for compatibility
         if location_string is None:
             location_string = ""
-        
+
         # Reset countdown state for new slide
         self._reset_countdown_state()
-            
+
+        # Fade out current slide before rendering new one
+        transition = self.config.get('TRANSITION_EFFECT', 'fade')
+        fade_duration = self.config.get('TRANSITION_DURATION', 500) if transition != 'cut' else 0
+        self.fade_out(fade_duration)
+
         try:
             if isinstance(photo_data, list) and len(photo_data) == 2:
                 self._display_paired_photos(photo_data, location_string, slideshow_timer)
@@ -209,9 +268,11 @@ class PygameDisplayManager:
                 self._countdown_start_time = time.time()
                 # Don't render here - let main loop handle it for consistency
             
-            # Update display
-            pygame.display.flip()
-            
+            # Update display with optional fade-in
+            transition = self.config.get('TRANSITION_EFFECT', 'fade')
+            fade_duration = self.config.get('TRANSITION_DURATION', 500) if transition != 'cut' else 0
+            self.fade_in(fade_duration)
+
         except Exception as e:
             self.logger.error(f"Error displaying single photo: {e}")
             self._display_error_message(f"Cannot load image: {os.path.basename(photo_data.get('path', 'Unknown'))}")
@@ -352,10 +413,12 @@ class PygameDisplayManager:
                 self._countdown_start_time = time.time()
                 # Don't render here - let main loop handle it for consistency
             
-            # Update display
-            pygame.display.flip()
+            # Update display with optional fade-in
+            transition = self.config.get('TRANSITION_EFFECT', 'fade')
+            fade_duration = self.config.get('TRANSITION_DURATION', 500) if transition != 'cut' else 0
+            self.fade_in(fade_duration)
             self.logger.debug(f"[PAIRED-DISPLAY] Completed paired photo display")
-            
+
         except Exception as e:
             self.logger.error(f"Error displaying paired photos: {e}")
             self._display_error_message("Cannot load paired images")
@@ -482,7 +545,12 @@ class PygameDisplayManager:
             try:
                 video = Video(video_path)
                 self.logger.debug(f"[VIDEO-LOAD] Successfully loaded video: {os.path.basename(video_path)}")
-                video.set_volume(self.config.get('AUDIO_ENABLED', True))
+                # Set volume: use VIDEO_VOLUME (0.0-1.0), or 0.0 if audio disabled
+                if self.config.get('AUDIO_ENABLED', True):
+                    volume = float(self.config.get('VIDEO_VOLUME', 0.0))
+                else:
+                    volume = 0.0
+                video.set_volume(volume)
             except FileNotFoundError:
                 self.logger.error(f"[VIDEO-LOAD-ERROR] Video file not found: {video_path}")
                 self._display_video_error_message(f"Video not found: {os.path.basename(video_path)}")
@@ -523,7 +591,7 @@ class PygameDisplayManager:
             
             # Resize video for screen
             video_pos = self._resize_video_for_screen(video)
-            
+
             start_time = time.time()
             self.video_playing = True
             self.current_video = video

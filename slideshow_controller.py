@@ -494,7 +494,10 @@ class SlideshowController:
             
             # Track statistics
             self.stats_total_slides += 1
-            
+
+            # Prefetch iCloud content for upcoming slides in background
+            self._prefetch_upcoming_content()
+
             # Timer creation - Check we're still on this slide (prevents race condition with async video display)
             # Use the captured incoming_slide_id from before current_slide was updated
             current_slide_id = self.current_slide.get('slide_id') if self.current_slide else None
@@ -810,69 +813,32 @@ class SlideshowController:
         return None, None
     
     def _get_filtered_video(self) -> Optional[Dict[str, Any]]:
-        """Get a filtered video based on configuration (person, local availability)."""
+        """Get a random video from the already-filtered photo cache.
+
+        This respects the same FILTER_PEOPLE/PLACES/KEYWORD and album settings
+        as regular photos, since the cache was built by photo_manager's filter logic.
+        """
         try:
-            # Get video filtering configuration
-            person_filter = self.config.get('video_person_filter')
-            local_only = self.config.get('video_local_only', True)
-            
-            self.logger.debug(f"Filtering videos - person: '{person_filter}', local_only: {local_only}")
-            
-            # Get videos from photo manager's photo database
-            if not hasattr(self.photo_manager, 'photos_db') or not self.photo_manager.photos_db:
-                self.logger.error(f"No photos database available")
+            if not self.photo_manager.photos_cache:
+                self.logger.warning("No photos cache available for video selection")
                 return None
-            
-            # Start with all videos or filter by person
-            if person_filter:
-                self.logger.debug(f"Searching for videos with person '{person_filter}'")
-                try:
-                    all_photos = self.photo_manager.photos_db.photos(persons=[person_filter])
-                    candidate_videos = [p for p in all_photos if p.ismovie]
-                    self.logger.debug(f"Found {len(candidate_videos)} videos with person '{person_filter}'")
-                except Exception as e:
-                    self.logger.error(f"Error searching for person '{person_filter}': {e}")
-                    return None
-            else:
-                # No person filter - get all videos
-                all_photos = self.photo_manager.photos_db.photos()
-                candidate_videos = [p for p in all_photos if p.ismovie]
-                self.logger.debug(f"Found {len(candidate_videos)} total videos (no person filter)")
-            
-            if not candidate_videos:
-                self.logger.warning(f"No videos found matching criteria")
-                return None
-            
-            # Filter for local availability if required
-            if local_only:
-                locally_available = []
-                for video in candidate_videos:
-                    is_missing = getattr(video, 'ismissing', False)
-                    has_path = getattr(video, 'path', None) and os.path.exists(video.path)
-                    
-                    if not is_missing and has_path:
-                        locally_available.append(video)
-                
-                self.logger.debug(f"{len(locally_available)} of {len(candidate_videos)} videos are locally available")
-                candidate_videos = locally_available
-            
-            if not candidate_videos:
-                self.logger.warning(f"No locally available videos found")
-                return None
-            
-            # Select random video from filtered candidates
+
+            # Find videos in the already-filtered cache
             import random
-            selected_video = random.choice(candidate_videos)
-            
-            # Extract metadata using existing photo pipeline
-            video_data = self.photo_manager._extract_photo_metadata(selected_video)
-            if video_data:
-                self.logger.debug(f"Selected video: {video_data.get('filename', 'unknown')}")
-                return video_data
-            else:
-                self.logger.error(f"Failed to extract metadata for selected video")
+            candidate_videos = [
+                p for p in self.photo_manager.photos_cache
+                if p.get('media_type') == 'video'
+            ]
+
+            if not candidate_videos:
+                self.logger.debug("No videos found in filtered photo cache")
                 return None
-                
+
+            selected = random.choice(candidate_videos)
+            self.logger.debug(f"Selected video from cache: {selected.get('filename', 'unknown')} "
+                            f"({len(candidate_videos)} candidates)")
+            return selected
+
         except Exception as e:
             self.logger.error(f"Error getting filtered video: {e}")
             return None
@@ -1179,6 +1145,22 @@ class SlideshowController:
         self.logger.debug(f"Created video slide: {video.get('filename', 'Unknown')} ({video_index+1} of {video_count})")
         return slide
     
+    def _prefetch_upcoming_content(self) -> None:
+        """Prefetch iCloud content for upcoming slides to reduce display delay."""
+        try:
+            # Get a few random upcoming photos to prefetch
+            upcoming = []
+            for _ in range(6):
+                idx = self.photo_manager.get_random_photo_index()
+                if idx is not None:
+                    photo = self.photo_manager.get_photo_by_index(idx)
+                    if photo:
+                        upcoming.append(photo)
+            if upcoming:
+                self.photo_manager.prefetch_upcoming_content(upcoming, count=3)
+        except Exception as e:
+            self.logger.debug(f"Prefetch error (non-critical): {e}")
+
     def _add_slide_to_history(self, slide: Dict[str, Any]) -> None:
         """Add slide to the history cache."""
         # If we're not at the end of history, truncate everything after current position
