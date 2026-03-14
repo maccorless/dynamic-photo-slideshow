@@ -1,0 +1,216 @@
+{
+  "version": "1.0",
+  "schema": {
+    "display": {
+      "label": "Display",
+      "settings": {
+        "PHOTO_TIMER": {
+          "type": "integer",
+          "label": "Slideshow Interval",
+          "description": "Time in seconds to display each photo before advancing to the next slide.",
+          "default": 10,
+          "min": 1,
+          "max": 60,
+          "unit": "seconds",
+          "requires_restart": false
+        },
+        "show_countdown_timer": {
+          "type": "boolean",
+          "label": "Show Countdown Timer",
+          "description": "Display a countdown timer showing remaining time for the current slide.",
+          "default": true,
+          "requires_restart": false
+        },
+        "VIDEO_MAX_TIMER": {
+          "type": "integer",
+          "label": "Max Video Duration",
+          "description": "Maximum time in seconds to play each video. Videos longer than this will be cut off.",
+          "default": 15,
+          "min": 1,
+          "max": 60,
+          "unit": "seconds",
+          "requires_restart": false
+        },
+        "show_date_overlay": {
+          "type": "boolean",
+          "label": "Show Date Overlay",
+          "description": "Display the photo date on the slide.",
+          "default": true,
+          "requires_restart": false
+        },
+        "show_location_overlay": {
+          "type": "boolean",
+          "label": "Show Location Overlay",
+          "description": "Display the photo location on the slide.",
+          "default": true,
+          "requires_restart": false
+        },
+        "TRANSITION_EFFECT": {
+          "type": "enum",
+          "label": "Transition Effect",
+          "description": "Visual transition between slides. Fade smoothly fades through black. Cut switches instantly.",
+          "default": "fade",
+          "options": ["fade", "cut"],
+          "requires_restart": false
+        },
+        "TRANSITION_DURATION": {
+          "type": "integer",
+          "label": "Transition Duration",
+          "description": "Duration of fade transition in milliseconds. Only applies when transition effect is set to fade.",
+          "default": 500,
+          "min": 100,
+          "max": 2000,
+          "unit": "ms",
+          "requires_restart": false
+        }
+      }
+    },
+    "video": {
+      "label": "Video",
+      "settings": {
+        "AUDIO_ENABLED": {
+          "type": "boolean",
+          "label": "Enable Video Audio",
+          "description": "Play audio when displaying video slides.",
+          "default": true
+        },
+        "VIDEO_VOLUME": {
+          "type": "float",
+          "label": "Video Volume",
+          "description": "Volume level for video playback. 0 is muted, 1 is full volume. Defaults to muted for picture frame use.",
+          "default": 0.0,
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.1
+        },
+        "video_test_mode": {
+          "type": "boolean",
+          "label": "Video Test Mode",
+          "description": "Enable test mode for debugging video playback issues. Only use for troubleshooting.",
+          "default": false
+        }
+      }
+    },
+    "photos": {
+      "label": "Photos",
+      "settings": {
+        "PORTRAIT_PHOTO_PAIRING": {
+          "type": "boolean",
+          "label": "Portrait Pairing",
+          "description": "Automatically pair portrait-oriented photos side-by-side for better display.",
+          "default": true
+        }
+      }
+    },
+    "voice": {
+      "label": "Voice Commands",
+      "settings": {
+        "voice_commands_enabled": {
+          "type": "boolean",
+          "label": "Enable Voice Commands",
+          "description": "Allow controlling the slideshow with voice commands (requires microphone).",
+          "default": true
+        },
+        "voice_confidence_threshold": {
+          "type": "float",
+          "label": "Confidence Threshold",
+          "description": "Minimum confidence level (0-1) required for voice recognition. Lower values are more permissive.",
+          "default": 0.7,
+          "min": 0.0,
+          "max": 1.0,
+          "step": 0.1
+        },
+        "voice_next_keywords": {
+          "type": "string",
+          "label": "Next Keywords",
+          "description": "Comma-separated list of words to advance to next slide.",
+          "default": "next,forward,advance"
+        },
+        "voice_back_keywords": {
+          "type": "string",
+          "label": "Back Keywords",
+          "description": "Comma-separated list of words to go to previous slide.",
+          "default": "back,previous,backward"
+        },
+        "voice_pause_keywords": {
+          "type": "string",
+          "label": "Pause Keywords",
+          "description": "Comma-separated list of words to pause the slideshow.",
+          "default": "pause,stop,halt"
+        },
+        "voice_resume_keywords": {
+          "type": "string",
+          "label": "Resume Keywords",
+          "description": "Comma-separated list of words to resume the slideshow.",
+          "default": "resume,play,go,start"
+        }
+      }
+    },
+    "filters": {
+      "label": "Filters",
+      "settings": {
+        "FILTER_PEOPLE": {
+          "type": "array",
+          "label": "People",
+          "description": "Show photos containing these people (comma-separated names from Apple Photos). Matches any listed person.",
+          "default": []
+        },
+        "FILTER_PLACES": {
+          "type": "array",
+          "label": "Places",
+          "description": "Show photos from these locations (comma-separated, partial match). Matches any listed place.",
+          "default": []
+        },
+        "FILTER_KEYWORD": {
+          "type": "array",
+          "label": "Keywords",
+          "description": "Show photos with these Apple Photos keywords (comma-separated). Matches any listed keyword.",
+          "default": []
+        },
+        "FILTER_AND_OR": {
+          "type": "enum",
+          "label": "Combine Filters With",
+          "description": "AND = photo must match all filter types (e.g. person AND place). OR = photo can match any filter type.",
+          "default": "AND",
+          "options": ["AND", "OR"]
+        }
+      }
+    },
+    "advanced": {
+      "label": "Advanced",
+      "settings": {
+        "album_name": {
+          "type": "string",
+          "label": "Album Name",
+          "description": "Name of the Apple Photos album to use for the slideshow.",
+          "default": "All Photos"
+        },
+        "NAV_HISTORY_SIZE": {
+          "type": "integer",
+          "label": "Cache Size",
+          "description": "Number of photos to keep in memory cache for faster loading.",
+          "default": 100,
+          "min": 10,
+          "max": 500,
+          "unit": "items"
+        },
+        "log_level": {
+          "type": "enum",
+          "label": "Log Level",
+          "description": "Amount of detail in log messages. DEBUG shows everything, ERROR shows only critical issues.",
+          "default": "INFO",
+          "options": ["DEBUG", "INFO", "WARNING", "ERROR"]
+        },
+        "navigation_history_size": {
+          "type": "integer",
+          "label": "Navigation History Size",
+          "description": "Number of previously viewed slides to keep in history for back navigation.",
+          "default": 50,
+          "min": 10,
+          "max": 200,
+          "unit": "slides"
+        }
+      }
+    }
+  }
+}

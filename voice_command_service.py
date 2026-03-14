@@ -83,15 +83,15 @@ class VoiceCommandService:
                 self.recognizer.dynamic_energy_threshold = True
                 self.recognizer.dynamic_energy_adjustment_damping = 0.15
                 self.recognizer.dynamic_energy_ratio = 1.5
-                self.recognizer.pause_threshold = 0.5  # Optimized for short commands
+                self.recognizer.pause_threshold = 0.3  # Fast response for single-word commands
                 self.recognizer.non_speaking_duration = 0.3 # Optimized for short commands
                 self.recognizer.phrase_threshold = 0.3  # Shorter phrase detection
                 
                 # Adjust for ambient noise
                 with self.microphone as source:
-                    self.logger.info("Calibrating microphone for ambient noise...")
+                    self.logger.debug("Calibrating microphone for ambient noise...")
                     self.recognizer.adjust_for_ambient_noise(source, duration=1)
-                    self.logger.info(f"Energy threshold set to: {self.recognizer.energy_threshold}")
+                    self.logger.debug(f"Energy threshold set to: {self.recognizer.energy_threshold}")
             
             # Add any custom variants from config
             custom_variants = self.config.get('custom_voice_variants', {})
@@ -100,7 +100,7 @@ class VoiceCommandService:
                     self.command_matcher.add_custom_variant(command, variant)
             
             self.is_enabled = True
-            self.logger.info(f"Voice command service initialized with {self.voice_provider.get_provider_name()}")
+            self.logger.debug(f"Voice command service initialized with {self.voice_provider.get_provider_name()}")
             return True
             
         except Exception as e:
@@ -127,7 +127,7 @@ class VoiceCommandService:
             )
             
             self.is_listening = True
-            self.logger.info("Voice command listening started")
+            self.logger.debug("Voice command listening started")
             return True
             
         except Exception as e:
@@ -140,7 +140,7 @@ class VoiceCommandService:
             try:
                 self.stop_listening(wait_for_stop=False)
                 self.is_listening = False
-                self.logger.info("Voice command listening stopped")
+                self.logger.debug("Voice command listening stopped")
             except Exception as e:
                 self.logger.error(f"Error stopping voice listening: {e}")
     
@@ -175,9 +175,9 @@ class VoiceCommandService:
             text: Recognized speech text
         """
         # Log all voice recognition attempts for debugging
-        self.logger.info(f"Voice recognition attempt: '{text}'")
+        self.logger.debug(f"Voice recognition attempt: '{text}'")
         
-        # Use the configurable command matcher
+        # Use the configurable command matcher (no wake word - single word commands only)
         match_result = self.command_matcher.find_matching_command(text)
         
         command_found = False
@@ -191,13 +191,13 @@ class VoiceCommandService:
                 self.controller.pause_for_voice_command()
                 paused_for_command = True
             
-            self.logger.info(f"Voice command recognized: {match_type} match '{matched_variant}' -> {command} (from text: '{text}')")
+            self.logger.debug(f"Voice command recognized: {match_type} match '{matched_variant}' -> {command} (from text: '{text}')")
             self._show_voice_feedback(command)
             self._schedule_command_execution(command, matched_variant)
             command_found = True
         
         if not command_found:
-            self.logger.info(f"No matching voice command found for: '{text}'")
+            self.logger.debug(f"No matching voice command found for: '{text}'")
         
         # Resume timer if it was playing before the command AND we actually paused it
         if paused_for_command and self.was_playing_before_command:
@@ -220,52 +220,34 @@ class VoiceCommandService:
     
     def _schedule_command_execution(self, command: str, keyword: str) -> None:
         """
-        Schedule command execution after 1.5 second delay.
+        Add command to thread-safe queue for main thread processing.
+        Queue operations are thread-safe, so no additional threading needed.
         
         Args:
             command: Command to execute
             keyword: The recognized keyword
         """
         try:
-            def delayed_execution():
-                time.sleep(1.5)  # Wait for overlay to show
-                
-                # Special handling for STOP command
-                if command == 'pause':
-                    # Show STOPPED overlay and pause slideshow
-                    if hasattr(self.controller, 'display_manager') and self.controller.display_manager:
-                        self.controller.display_manager.show_stopped_overlay()
-                    if not self.controller.is_paused:
-                        self.controller.toggle_pause()
-                else:
-                    # For other commands, execute normally
-                    self._execute_command(command)
-                    
-                    # If this is GO command, clear stopped overlay
-                    if command == 'resume':
-                        if hasattr(self.controller, 'display_manager') and self.controller.display_manager:
-                            self.controller.display_manager.clear_stopped_overlay()
-            
-            # Execute in background thread to avoid blocking
-            thread = threading.Thread(target=delayed_execution, daemon=True)
-            thread.start()
+            # Add command to queue - thread-safe operation
+            # Main pygame thread will process commands from queue
+            self._execute_command(command)
             
         except Exception as e:
-            self.logger.error(f"Error scheduling command execution: {e}")
-            # Fallback to immediate execution
-            self._execute_command(command)
+            self.logger.error(f"Error adding command to queue: {e}")
     
     def _execute_command(self, command: str) -> None:
-        """Execute the voice command by calling appropriate controller method."""
+        """Execute the voice command by adding to queue for main thread processing."""
         try:
             if command == 'next':
-                self.controller.next_photo()
+                self.controller.voice_next()  # Adds to queue for main thread
             elif command == 'back':
-                self.controller.previous_photo()
+                self.controller.voice_previous()  # Adds to queue for main thread
             elif command == 'pause':
-                self.controller.toggle_pause()
+                self.controller.voice_command_queue.put('pause')
+                self.logger.debug("[VOICE] Added 'pause' to voice command queue")
             elif command == 'resume':
-                self.controller.toggle_pause()
+                self.controller.voice_command_queue.put('resume')
+                self.logger.debug("[VOICE] Added 'resume' to voice command queue")
             else:
                 self.logger.warning(f"Unknown command: {command}")
         except Exception as e:

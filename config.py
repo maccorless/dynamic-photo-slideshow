@@ -16,23 +16,20 @@ class SlideshowConfig:
     
     # Default configuration values
     DEFAULT_CONFIG = {
-        "album_name": "photoframe",
-        "filter_by_people": False,
-        "filter_people_names": [],
-        "filter_by_places": [],
-        "filter_by_keywords": [],
-        "people_filter_logic": "OR",
-        "places_filter_logic": "OR",
-        "overall_filter_logic": "AND",
-        "min_people_count": 1,
+        "album_name": "All Photos",
+        "FILTER_PEOPLE": [],
+        "FILTER_PLACES": [],
+        "FILTER_KEYWORD": [],
+        "FILTER_AND_OR": "AND",
         "max_photos_limit": 500,
         "shuffle_photos": True,
-        "slideshow_interval": 10,
-        "portrait_pairing": True,
+        "PHOTO_TIMER": 10,
+        "PORTRAIT_PHOTO_PAIRING": True,
         "MONITOR_RESOLUTION": "auto",
         "OVERLAY_PLACEMENT": "TOP",
         "OVERLAY_ALIGNMENT": "CENTER",
         "TRANSITION_EFFECT": "fade",
+        "TRANSITION_DURATION": 500,  # milliseconds for fade transition
         "CACHE_SIZE_LIMIT_GB": 20,
         "FORCE_CACHE_REFRESH": False,
         "max_recent_photos": 50,
@@ -42,25 +39,38 @@ class SlideshowConfig:
         "download_batch_size": 100,
         "max_year_percentage": 0.3,
         "cache_refresh_check_interval": 3600,
-        "photo_history_cache_size": 100,
+        "NAV_HISTORY_SIZE": 100,
         "DEBUG_SCALING": False,
         "LOGGING_VERBOSE": False,
-        # Video playback settings (currently disabled)
-        'video_playback_enabled': False,
-        'video_max_duration': 10, # seconds
-        'video_audio_enabled': False,
-
+        # Video playback settings for v3.0
+        'video_playback_enabled': True,
+        'VIDEO_MAX_TIMER': 15, # seconds - maximum video length to play
+        'AUDIO_ENABLED': True, # Enable audio playback for videos
+        'VIDEO_VOLUME': 0.0, # 0.0 = muted, 1.0 = full volume (muted by default for picture frame)
+        'video_auto_play': True, # Automatically play videos in slideshow
+        'video_loop': False, # Loop videos if shorter than slideshow interval
+        'video_thumbnail_enabled': True, # Generate thumbnails for videos
+        'video_formats_supported': ['.mp4', '.mov', '.avi', '.mkv', '.wmv'], # Supported formats
+        
         # Voice command settings
-        'voice_commands_enabled': False,
+        'voice_commands_enabled': True,
+        'voice_provider': 'google', # Voice recognition provider ('google', 'mock')
         'voice_confidence_threshold': 0.3, # Minimum confidence for recognition
         'voice_command_timeout': 2.0, # Seconds to listen for a command
+        'voice_command_variants_path': 'voice_command_variants.json', # Path to voice command variants file
+        'custom_voice_variants': {}, # Custom voice command variants (overrides defaults)
         'voice_keywords': {
             "next": ["next", "forward", "advance", "right"],
             "back": ["back", "previous", "backward", "left"],
             "pause": ["stop", "pause", "halt"],
             "resume": ["blueberry", "start", "resume", "play", "continue"]
         },
-        "show_countdown_timer": True
+        "show_countdown_timer": True,
+        "show_date_overlay": True,
+        "show_location_overlay": True,
+        
+        # Test/Debug settings
+        'video_test_mode': False  # If True, only shows videos in rotation for testing
     }
     
     # Valid values for validation
@@ -68,9 +78,7 @@ class SlideshowConfig:
         "OVERLAY_PLACEMENT": ["TOP", "BOTTOM"],
         "OVERLAY_ALIGNMENT": ["LEFT", "CENTER", "RIGHT"],
         "TRANSITION_EFFECT": ["fade", "crossfade", "cut"],
-        "people_filter_logic": ["AND", "OR"],
-        "places_filter_logic": ["AND", "OR"],
-        "overall_filter_logic": ["AND", "OR"]
+        "FILTER_AND_OR": ["AND", "OR"]
     }
     
     def __init__(self, path_config: Optional[PathConfig] = None):
@@ -105,7 +113,7 @@ class SlideshowConfig:
                         # Allow additional config keys not in defaults
                         self.config[key] = value
                 
-                self.logger.info(f"Configuration loaded from {self.config_path}")
+                self.logger.debug(f"Configuration loaded from {self.config_path}")
             else:
                 self.logger.info("No config file found, using defaults")
                 self._create_default_config()
@@ -116,7 +124,7 @@ class SlideshowConfig:
     
     def _validate_config_value(self, key: str, value: Any) -> bool:
         """Validate a configuration value."""
-        if key == "slideshow_interval":
+        if key == "PHOTO_TIMER":
             return isinstance(value, int) and 1 <= value <= 86400
         elif key == "CACHE_SIZE_LIMIT_GB":
             return isinstance(value, int) and 1 <= value <= 100
@@ -136,7 +144,10 @@ class SlideshowConfig:
             return isinstance(value, bool)
         elif key == "album_name":
             return isinstance(value, str)
-        elif key in ["max_photos_limit", "min_people_count", "slideshow_interval", 
+        elif key == "max_photos_limit":
+            # 0 means no limit, so allow >= 0
+            return isinstance(value, int) and value >= 0
+        elif key in ["PHOTO_TIMER",
                      "CACHE_SIZE_LIMIT_GB", "max_recent_photos", "fallback_photo_limit",
                      "min_fallback_photos", "progress_log_interval", "download_batch_size",
                      "cache_refresh_check_interval"]:
@@ -158,6 +169,25 @@ class SlideshowConfig:
     def get(self, key: str, default: Any = None) -> Any:
         """Get configuration value."""
         return self.config.get(key, default)
+    
+    def set(self, key: str, value: Any) -> bool:
+        """
+        Set configuration value with validation.
+        
+        Args:
+            key: Configuration key
+            value: New value
+            
+        Returns:
+            True if value was set, False if validation failed
+        """
+        if not self._validate_config_value(key, value):
+            self.logger.error(f"Validation failed for {key} = {value}")
+            return False
+        
+        self.config[key] = value
+        self.logger.info(f"Config updated: {key} = {value}")
+        return True
     
     def get_all(self) -> Dict[str, Any]:
         """Get all configuration values."""

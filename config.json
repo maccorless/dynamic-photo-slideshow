@@ -1,0 +1,39 @@
+{
+  "version": "1.0",
+  "display": {
+    "slideshow_interval": 10,
+    "show_countdown_timer": true,
+    "max_video_duration": 15,
+    "show_date_overlay": false,
+    "show_location_overlay": true
+  },
+  "video": {
+    "video_audio_enabled": true,
+    "video_test_mode": false
+  },
+  "photos": {
+    "portrait_pairing_enabled": true,
+    "min_people_for_pairing": 2,
+    "photo_limit": 0
+  },
+  "voice": {
+    "voice_commands_enabled": true,
+    "voice_confidence_threshold": 0.8,
+    "voice_next_keywords": "next,forward,advance",
+    "voice_back_keywords": "back,previous,backward",
+    "voice_pause_keywords": "pause,stop,halt",
+    "voice_resume_keywords": "resume,play,go,start"
+  },
+  "filters": {
+    "people_filter": "",
+    "places_filter": "",
+    "keywords_filter": "",
+    "filter_logic": "AND"
+  },
+  "advanced": {
+    "album_name": "",
+    "cache_size": 100,
+    "log_level": "INFO",
+    "navigation_history_size": 50
+  }
+}

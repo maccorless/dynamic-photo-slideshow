@@ -58,7 +58,7 @@ class VoiceCommandMatcher:
             self.matching_settings.setdefault('min_word_length_for_partial', 3)
             self.matching_settings.setdefault('case_sensitive', False)
             
-            self.logger.info(f"Loaded voice command variants for {len(self.command_variants)} commands")
+            self.logger.debug(f"Loaded voice command variants for {len(self.command_variants)} commands")
             return True
             
         except Exception as e:
@@ -122,38 +122,58 @@ class VoiceCommandMatcher:
         text_lower = text.lower().strip() if not self.matching_settings['case_sensitive'] else text.strip()
         words = text_lower.split()
         
+        self.logger.debug(f"Heard: '{text}' (normalized: '{text_lower}')")
+        self.logger.debug(f"Words: {words}")
+        
         # Try different matching strategies in order of preference
         for command, variants in self.command_variants.items():
+            self.logger.debug(f"[VOICE-MATCH] Checking command '{command}'...")
             
             # 1. Exact word matching (highest priority)
             if self.matching_settings['enable_exact_matching']:
+                exact_matches = variants.get('exact_matches', [])
+                self.logger.debug(f"[VOICE-MATCH]   Exact matches configured: {exact_matches}")
                 for word in words:
-                    for exact_match in variants.get('exact_matches', []):
+                    for exact_match in exact_matches:
                         if word == exact_match.lower():
+                            self.logger.debug(f"✅ MATCHED '{word}' -> {command} (exact word match)")
                             return command, exact_match, 'exact'
             
             # 2. Word boundary matching
             if self.matching_settings['enable_exact_matching']:
                 for exact_match in variants.get('exact_matches', []):
                     if re.search(r'\b' + re.escape(exact_match.lower()) + r'\b', text_lower):
+                        self.logger.debug(f"✅ MATCHED '{exact_match}' -> {command} (word boundary)")
                         return command, exact_match, 'word_boundary'
             
             # 3. Fuzzy variant matching
             if self.matching_settings['enable_fuzzy_matching']:
-                for fuzzy_variant in variants.get('fuzzy_variants', []):
+                fuzzy_variants = variants.get('fuzzy_variants', [])
+                if fuzzy_variants:
+                    self.logger.debug(f"[VOICE-MATCH]   Fuzzy variants: {fuzzy_variants[:10]}{'...' if len(fuzzy_variants) > 10 else ''}")
+                for fuzzy_variant in fuzzy_variants:
                     if fuzzy_variant.lower() in text_lower:
+                        self.logger.debug(f"✅ MATCHED '{fuzzy_variant}' -> {command} (fuzzy variant)")
                         return command, fuzzy_variant, 'fuzzy'
             
             # 4. Phonetic variant matching
             if self.matching_settings['enable_phonetic_matching']:
-                for phonetic_variant in variants.get('phonetic_variants', []):
+                phonetic_variants = variants.get('phonetic_variants', [])
+                if phonetic_variants:
+                    self.logger.debug(f"[VOICE-MATCH]   Phonetic variants: {phonetic_variants[:10]}{'...' if len(phonetic_variants) > 10 else ''}")
+                for phonetic_variant in phonetic_variants:
                     if phonetic_variant.lower() in text_lower:
+                        self.logger.debug(f"✅ MATCHED '{phonetic_variant}' -> {command} (phonetic variant)")
                         return command, phonetic_variant, 'phonetic'
             
             # 5. Partial matching for short words
             if self.matching_settings['enable_partial_matching']:
-                for partial_variant in variants.get('partial_match_variants', []):
+                partial_variants = variants.get('partial_match_variants', [])
+                if partial_variants:
+                    self.logger.debug(f"[VOICE-MATCH]   Partial variants: {partial_variants}")
+                for partial_variant in partial_variants:
                     if partial_variant.lower() in text_lower:
+                        self.logger.debug(f"✅ MATCHED '{partial_variant}' -> {command} (partial match)")
                         return command, partial_variant, 'partial'
                 
                 # Check if any exact match is at start or end of words
@@ -161,6 +181,7 @@ class VoiceCommandMatcher:
                     if len(exact_match) <= self.matching_settings['min_word_length_for_partial']:
                         for word in words:
                             if word.startswith(exact_match.lower()) or word.endswith(exact_match.lower()):
+                                self.logger.debug(f"✅ MATCHED '{word}' contains '{exact_match}' -> {command} (partial word)")
                                 return command, exact_match, 'partial_word'
             
             # 6. Levenshtein distance matching (most permissive)
@@ -169,11 +190,13 @@ class VoiceCommandMatcher:
                 for exact_match in variants.get('exact_matches', []):
                     if len(exact_match) >= 3:  # Only for words of reasonable length
                         for word in words:
-                            if (len(word) >= 2 and 
-                                abs(len(word) - len(exact_match)) <= max_diff and
-                                self._levenshtein_distance(word, exact_match.lower()) <= max_diff):
-                                return command, exact_match, 'levenshtein'
+                            if len(word) >= 2 and abs(len(word) - len(exact_match)) <= max_diff:
+                                distance = self._levenshtein_distance(word, exact_match.lower())
+                                if distance <= max_diff:
+                                    self.logger.debug(f"✅ MATCHED '{word}' -> {command} (levenshtein distance={distance}, target='{exact_match}')")
+                                    return command, exact_match, 'levenshtein'
         
+        self.logger.debug(f"❌ NO MATCH found for '{text}'")
         return None
     
     def _levenshtein_distance(self, s1: str, s2: str) -> int:
@@ -231,7 +254,7 @@ class VoiceCommandMatcher:
         
         if variant not in self.command_variants[command][variant_type]:
             self.command_variants[command][variant_type].append(variant)
-            self.logger.info(f"Added custom variant '{variant}' for command '{command}' as {variant_type}")
+            self.logger.debug(f"Added custom variant '{variant}' for command '{command}' as {variant_type}")
     
     def get_command_info(self, command: str) -> Dict:
         """Get information about a specific command and its variants."""

@@ -1,0 +1,34 @@
+{
+  "_comment": "Dynamic Photo Slideshow Configuration",
+  "_instructions": "Copy this file to ~/.photo_slideshow_config.json and customize the values below",
+
+  "PHOTO_TIMER": 10,
+  "VIDEO_MAX_TIMER": 15,
+  "show_countdown_timer": true,
+  "show_date_overlay": true,
+  "show_location_overlay": true,
+  "TRANSITION_EFFECT": "fade",
+  "TRANSITION_DURATION": 500,
+
+  "AUDIO_ENABLED": true,
+  "VIDEO_VOLUME": 0.0,
+  "video_test_mode": false,
+
+  "PORTRAIT_PHOTO_PAIRING": true,
+
+  "voice_commands_enabled": true,
+  "voice_confidence_threshold": 0.7,
+  "voice_next_keywords": "next,forward,advance",
+  "voice_back_keywords": "back,previous,backward",
+  "voice_pause_keywords": "pause,stop,halt",
+  "voice_resume_keywords": "resume,play,go,start",
+
+  "FILTER_PEOPLE": [],
+  "FILTER_PLACES": [],
+  "FILTER_KEYWORD": [],
+  "FILTER_AND_OR": "AND",
+
+  "album_name": "",
+  "NAV_HISTORY_SIZE": 50,
+  "log_level": "INFO"
+}

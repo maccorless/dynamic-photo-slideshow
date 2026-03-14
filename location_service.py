@@ -47,7 +47,7 @@ class LocationService:
             if self.cache_file.exists():
                 with open(self.cache_file, 'r') as f:
                     self.cache = json.load(f)
-                self.logger.info(f"Loaded {len(self.cache)} cached locations")
+                self.logger.debug(f"Loaded {len(self.cache)} cached locations")
             else:
                 self.cache = {}
         except (json.JSONDecodeError, IOError) as e:
@@ -64,6 +64,10 @@ class LocationService:
     
     def get_location_string(self, latitude: float, longitude: float) -> Optional[str]:
         """Get location string for coordinates, using cache when possible."""
+        # Check for None coordinates first
+        if latitude is None or longitude is None:
+            return None
+            
         # Create cache key from coordinates (rounded to 4 decimal places for reasonable caching)
         cache_key = f"{round(latitude, 4)},{round(longitude, 4)}"
         
