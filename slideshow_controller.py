@@ -154,14 +154,26 @@ class SlideshowController:
         
         # 3. Display slide with timer setup (single responsibility)
         success = self._display_slide_with_timer(slide)
-        
+
         if not success:
-            self.logger.error("Failed to display slide")
-        
+            # Auto-skip to next slide on failure (up to max_retries attempts)
+            max_retries = getattr(self, '_skip_retries', 0)
+            if max_retries < 3:
+                self._skip_retries = max_retries + 1
+                self.logger.warning(f"Slide failed to display, auto-skipping (attempt {self._skip_retries}/3)")
+                if hasattr(self, 'unblock_input'):
+                    self.unblock_input()
+                return self.advance_slideshow(trigger, Direction.NEXT)
+            else:
+                self.logger.error("Failed to display slide after 3 skip attempts")
+                self._skip_retries = 0
+        else:
+            self._skip_retries = 0
+
         # Unblock input after slide transition completes
         if hasattr(self, 'unblock_input'):
             self.unblock_input()
-        
+
         return success
     
     # ========================================

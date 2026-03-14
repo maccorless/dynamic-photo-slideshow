@@ -5,7 +5,7 @@ pillow-heif>=0.13.0
 SpeechRecognition>=3.14.0
 # Removed: python-vlc>=3.0 (was for tkinter video path - no longer needed)
 # Video processing dependencies for v3.0
-opencv-python>=4.8.0
+opencv-python-headless>=4.8.0  # Headless avoids duplicate libSDL2 conflict with pygame-ce
 moviepy>=1.0.3
 imageio>=2.31.0
 # Pygame display dependencies

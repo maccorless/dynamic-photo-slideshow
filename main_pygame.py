@@ -311,18 +311,21 @@ def main() -> None:
         
         # Log user configuration summary
         logger.info(f"Slideshow config: PHOTO_TIMER={config.get('PHOTO_TIMER')}s, VIDEO_MAX_TIMER={config.get('VIDEO_MAX_TIMER')}s, Display={config.get('MONITOR_RESOLUTION', 'auto')}")
-        
+
+        # Create pygame display manager first so we can show a loading screen
+        display_manager = PygameDisplayManager(config)
+        display_manager.show_loading_screen("Loading photos...")
+
         # Initialize photo manager and load photos
         photo_manager = PhotoManager(config, path_config)
         photos = photo_manager.load_photos()
-        
+
         if not photos:
-            print("No photos found. Please check your album configuration.")
+            display_manager.show_loading_screen("No photos found. Check album configuration.")
+            pygame.time.wait(3000)
+            display_manager.stop()
             logger.error("Please add photos to this album in Photos.")
             return
-        
-        # Create pygame display manager
-        display_manager = PygameDisplayManager(config)
         
         # Create settings manager using the SAME config file as SlideshowConfig
         # This ensures settings changes are persisted to the correct file

@@ -561,30 +561,33 @@ class PhotoManager:
         return self._get_random_portrait_index_by_type(['image', 'video', 'live_photo'])
     
     def check_and_load_new_photos(self) -> bool:
-        """Check for new photos and load them incrementally. Returns True if new photos were loaded."""
-        if not self.cache_manager.should_check_cache(self.last_cache_check):
+        """Check for new photos and load them incrementally. Returns True if new photos were loaded.
+
+        Always re-queries the Photos library when the refresh interval has elapsed,
+        so new photos added directly to Apple Photos are picked up automatically.
+        The signal file from download scripts can also trigger an early refresh.
+        """
+        # Check if a download script wrote a signal file (triggers immediate refresh)
+        signal_triggered = self.cache_manager.check_for_new_photos() is not None
+
+        # Also refresh on the regular interval, regardless of signal file
+        if not signal_triggered and not self.cache_manager.should_check_cache(self.last_cache_check):
             return False
-            
-        signal_data = self.cache_manager.check_for_new_photos()
-        if signal_data is None:
-            self.last_cache_check = datetime.now(timezone.utc)
-            return False
-        
+
         # Load new photos incrementally
         old_count = len(self.photos_cache)
         self.logger.debug(f"Checking for new photos (had {old_count} photos)")
-        
+
         # Get fresh photos from the library (suppress logging for incremental check)
         new_photos = self._load_photos_with_filters(log_search=False)
-        
-        if len(new_photos) > old_count:
-            # Add only the new photos to the existing cache
-            new_photo_count = len(new_photos) - old_count
-            self.photos_cache = new_photos  # Replace with full updated list
-            self.logger.info(f"Cache updated: {new_photo_count} new items added (now {len(self.photos_cache)} total)")
+
+        if len(new_photos) != old_count:
+            change = len(new_photos) - old_count
+            self.photos_cache = new_photos
+            self.logger.info(f"Cache updated: {change:+d} items (now {len(self.photos_cache)} total)")
             self.last_cache_check = datetime.now(timezone.utc)
             return True
-        
+
         self.last_cache_check = datetime.now(timezone.utc)
         return False
     

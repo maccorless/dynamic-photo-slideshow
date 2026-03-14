@@ -88,7 +88,15 @@ class PygameDisplayManager:
         self.settings_window = None
         
         self.logger.debug(f"Pygame Display Manager initialized: {self.screen_width}x{self.screen_height}")
-    
+
+    def show_loading_screen(self, message: str = "Loading...") -> None:
+        """Display a centered loading message on a black background."""
+        self.screen.fill(self.BLACK)
+        text_surface = self.font.render(message, True, self.WHITE)
+        text_rect = text_surface.get_rect(center=(self.screen_width // 2, self.screen_height // 2))
+        self.screen.blit(text_surface, text_rect)
+        pygame.display.flip()
+
     def set_controller(self, controller, settings_manager):
         """
         Set the controller reference and settings manager for live settings updates.

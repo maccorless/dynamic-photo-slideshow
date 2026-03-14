@@ -10,14 +10,31 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 echo "🎬 Starting Photo Slideshow..."
 echo "📁 Installation: $SCRIPT_DIR"
 
-# Check if virtual environment exists and activate it
-if [ -f "$SCRIPT_DIR/venv/bin/activate" ]; then
-    echo "🐍 Activating virtual environment..."
-    source "$SCRIPT_DIR/venv/bin/activate"
-else
-    echo "⚠️  Warning: Virtual environment not found at $SCRIPT_DIR/venv"
-    echo "   Using system Python instead"
-fi
+# Find a working virtual environment python binary
+# Venvs break if the project directory is moved, so verify the python binary actually works
+find_working_venv() {
+    for VENV_DIR in "$SCRIPT_DIR/venv" "$SCRIPT_DIR/slideshow_env"; do
+        if [ -x "$VENV_DIR/bin/python3" ] && "$VENV_DIR/bin/python3" -c "import sys" 2>/dev/null; then
+            echo "$VENV_DIR/bin/python3"
+            return 0
+        fi
+    done
+    return 1
+}
+
+PYTHON=$(find_working_venv) && {
+    echo "🐍 Using virtual environment: $PYTHON"
+} || {
+    # No working venv found — try to rebuild it
+    echo "⚠️  Virtual environment is missing or broken. Rebuilding..."
+    python3 -m venv "$SCRIPT_DIR/venv" --clear 2>/dev/null || {
+        rm -rf "$SCRIPT_DIR/venv"
+        python3 -m venv "$SCRIPT_DIR/venv"
+    }
+    "$SCRIPT_DIR/venv/bin/pip" install -r "$SCRIPT_DIR/requirements.txt" --quiet
+    PYTHON="$SCRIPT_DIR/venv/bin/python3"
+    echo "✅ Virtual environment rebuilt at $SCRIPT_DIR/venv"
+}
 
 # Change to script directory
 cd "$SCRIPT_DIR"
@@ -46,7 +63,7 @@ fi
 # Run the slideshow with any passed arguments
 echo "🚀 Launching slideshow..."
 echo ""
-python main_pygame.py "$@"
+$PYTHON main_pygame.py "$@"
 
 # Capture exit code
 EXIT_CODE=$?
