@@ -6,7 +6,7 @@ set -e  # Exit on error
 
 # Get the directory where this script lives
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-BRANCH="photo-video-voice"
+BRANCH="main"
 
 echo "========================================"
 echo "Photo Slideshow - Update"
