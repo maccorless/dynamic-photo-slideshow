@@ -1148,16 +1148,16 @@ class SlideshowController:
     def _prefetch_upcoming_content(self) -> None:
         """Prefetch iCloud content for upcoming slides to reduce display delay."""
         try:
-            # Get a few random upcoming photos to prefetch
+            # Sample more candidates to improve odds of hitting needs_export photos
             upcoming = []
-            for _ in range(6):
+            for _ in range(15):
                 idx = self.photo_manager.get_random_photo_index()
                 if idx is not None:
                     photo = self.photo_manager.get_photo_by_index(idx)
                     if photo:
                         upcoming.append(photo)
             if upcoming:
-                self.photo_manager.prefetch_upcoming_content(upcoming, count=3)
+                self.photo_manager.prefetch_upcoming_content(upcoming, count=5)
         except Exception as e:
             self.logger.debug(f"Prefetch error (non-critical): {e}")
 

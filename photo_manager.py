@@ -787,7 +787,7 @@ class PhotoManager:
             
             # Export to cache directory with UUID filename
             self.logger.debug(f"[EXPORT-DEBUG] About to call osxphoto.export() with cache_dir={cache_dir}, filename={photo_uuid}{file_ext}")
-            export_paths = osxphoto.export(cache_dir, filename=f"{photo_uuid}{file_ext}", overwrite=True)
+            export_paths = osxphoto.export(cache_dir, filename=f"{photo_uuid}{file_ext}", overwrite=True, use_photos_export=True)
             self.logger.debug(f"[EXPORT-DEBUG] osxphoto.export() returned: {export_paths}")
             
             export_time = time.time() - start_time
