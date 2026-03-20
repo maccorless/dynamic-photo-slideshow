@@ -6,7 +6,7 @@ set -e  # Exit on error
 
 INSTALL_DIR="/Applications/PhotoSlideshow"
 REPO_URL="https://github.com/maccorless/dynamic-photo-slideshow.git"
-BRANCH="photo-video-voice"
+BRANCH="main"
 REQUIRED_PYTHON_VERSION="3.11"
 
 echo "========================================"
