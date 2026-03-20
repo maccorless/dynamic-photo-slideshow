@@ -63,7 +63,18 @@ fi
 # Run the slideshow with any passed arguments
 echo "🚀 Launching slideshow..."
 echo ""
-$PYTHON main_pygame.py "$@"
+
+WARNINGS_LOG="$SCRIPT_DIR/warnings.log"
+
+# Hide pygame version banner; filter macOS objc duplicate-library warnings to warnings.log
+export PYGAME_HIDE_SUPPORT_PROMPT=1
+$PYTHON main_pygame.py "$@" 2> >(while IFS= read -r line; do
+    if [[ "$line" == objc\[* ]]; then
+        printf '%s\n' "$line" >> "$WARNINGS_LOG"
+    else
+        printf '%s\n' "$line" >&2
+    fi
+done)
 
 # Capture exit code
 EXIT_CODE=$?

@@ -5,11 +5,15 @@ A fullscreen photo slideshow that connects to Apple Photos with pygame-based dis
 """
 
 import sys
+import warnings
 import logging
 import pygame
 import os
 import time
 from pathlib import Path
+
+# Suppress noisy pygame_gui font pre-load warnings (cosmetic, not functional errors)
+warnings.filterwarnings("ignore", "Trying to pre-load font", UserWarning)
 
 from config import SlideshowConfig
 from photo_manager import PhotoManager
