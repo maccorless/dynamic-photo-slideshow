@@ -27,75 +27,66 @@ version_ge() {
     printf '%s\n%s\n' "$2" "$1" | sort -V -C
 }
 
-# Check for Python 3
+# Check for Python 3.11+
 echo "🐍 Checking for Python 3..."
 
-# Try python3.13 first, then python3
-PYTHON_CMD=""
+# Locate Homebrew prefix regardless of whether brew is in PATH
+# (scripts launched from .command files on the Desktop may not inherit the user's PATH)
+BREW_PREFIX=""
+if [ -x "/opt/homebrew/bin/brew" ]; then
+    BREW_PREFIX="/opt/homebrew"        # Apple Silicon
+elif [ -x "/usr/local/bin/brew" ]; then
+    BREW_PREFIX="/usr/local"           # Intel
+fi
 
-# Check for python3.13 first, then python3.12, then python3.11
-if command -v python3.13 &> /dev/null; then
-    PYTHON_CMD="python3.13"
-    PYTHON_VERSION=$(python3.13 --version | cut -d' ' -f2)
-    echo "   Found python3.13: $PYTHON_VERSION"
-elif [ -x "/opt/homebrew/bin/python3.13" ]; then
-    PYTHON_CMD="/opt/homebrew/bin/python3.13"
-    PYTHON_VERSION=$(/opt/homebrew/bin/python3.13 --version | cut -d' ' -f2)
-    echo "   Found python3.13 in Homebrew: $PYTHON_VERSION"
-elif [ -x "/usr/local/bin/python3.13" ]; then
-    PYTHON_CMD="/usr/local/bin/python3.13"
-    PYTHON_VERSION=$(/usr/local/bin/python3.13 --version | cut -d' ' -f2)
-    echo "   Found python3.13 in /usr/local: $PYTHON_VERSION"
-elif command -v python3.12 &> /dev/null; then
-    PYTHON_CMD="python3.12"
-    PYTHON_VERSION=$(python3.12 --version | cut -d' ' -f2)
-    echo "   Found python3.12: $PYTHON_VERSION"
-elif [ -x "/opt/homebrew/bin/python3.12" ]; then
-    PYTHON_CMD="/opt/homebrew/bin/python3.12"
-    PYTHON_VERSION=$(/opt/homebrew/bin/python3.12 --version | cut -d' ' -f2)
-    echo "   Found python3.12 in Homebrew: $PYTHON_VERSION"
-elif [ -x "/usr/local/bin/python3.12" ]; then
-    PYTHON_CMD="/usr/local/bin/python3.12"
-    PYTHON_VERSION=$(/usr/local/bin/python3.12 --version | cut -d' ' -f2)
-    echo "   Found python3.12 in /usr/local: $PYTHON_VERSION"
-elif command -v python3.11 &> /dev/null; then
-    PYTHON_CMD="python3.11"
-    PYTHON_VERSION=$(python3.11 --version | cut -d' ' -f2)
-    echo "   Found python3.11: $PYTHON_VERSION"
-elif [ -x "/opt/homebrew/bin/python3.11" ]; then
-    PYTHON_CMD="/opt/homebrew/bin/python3.11"
-    PYTHON_VERSION=$(/opt/homebrew/bin/python3.11 --version | cut -d' ' -f2)
-    echo "   Found python3.11 in Homebrew: $PYTHON_VERSION"
-elif [ -x "/usr/local/bin/python3.11" ]; then
-    PYTHON_CMD="/usr/local/bin/python3.11"
-    PYTHON_VERSION=$(/usr/local/bin/python3.11 --version | cut -d' ' -f2)
-    echo "   Found python3.11 in /usr/local: $PYTHON_VERSION"
-elif command -v python3 &> /dev/null; then
-    PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
-    echo "   Found python3: $PYTHON_VERSION"
-    
-    if version_ge "$PYTHON_VERSION" "$REQUIRED_PYTHON_VERSION"; then
-        PYTHON_CMD="python3"
-    else
-        echo "   ❌ Python $PYTHON_VERSION is too old (need $REQUIRED_PYTHON_VERSION+)"
-        echo ""
-        echo "   Please install Python 3.11+:"
-        echo "   • Via Homebrew: brew install python@3.13"
-        echo "   • Or download from: https://www.python.org/downloads/"
-        exit 1
+# find_python: returns the path to the best available Python 3.11+
+# Checks Homebrew explicit paths first so it works even when brew isn't in PATH,
+# then falls back to versioned commands in PATH.
+find_python() {
+    local versions=("3.13" "3.12" "3.11")
+    for ver in "${versions[@]}"; do
+        # Homebrew framework path (most explicit — works even if brew not in PATH)
+        if [ -n "$BREW_PREFIX" ] && [ -x "$BREW_PREFIX/opt/python@$ver/bin/python$ver" ]; then
+            echo "$BREW_PREFIX/opt/python@$ver/bin/python$ver"; return 0
+        fi
+        # Homebrew bin symlink
+        if [ -n "$BREW_PREFIX" ] && [ -x "$BREW_PREFIX/bin/python$ver" ]; then
+            echo "$BREW_PREFIX/bin/python$ver"; return 0
+        fi
+        # Versioned command in PATH
+        if command -v "python$ver" &>/dev/null; then
+            echo "python$ver"; return 0
+        fi
+    done
+    return 1
+}
+
+PYTHON_CMD=$(find_python || true)
+
+# If nothing found, try to install via Homebrew automatically
+if [ -z "$PYTHON_CMD" ]; then
+    echo "   ❌ Python 3.11+ not found"
+    echo ""
+    BREW_CMD="${BREW_PREFIX:+$BREW_PREFIX/bin/brew}"
+    BREW_CMD="${BREW_CMD:-$(command -v brew 2>/dev/null || true)}"
+    if [ -n "$BREW_CMD" ] && [ -x "$BREW_CMD" ]; then
+        echo "   Homebrew found. Installing Python 3.13 automatically..."
+        "$BREW_CMD" install python@3.13
+        PYTHON_CMD=$(find_python || true)
     fi
 fi
 
 if [ -z "$PYTHON_CMD" ]; then
-    echo "   ❌ Python 3.11+ not found"
+    echo "   ❌ Python 3.11+ not found and could not be installed automatically"
     echo ""
-    echo "Please install Python 3.11+:"
+    echo "   Install Python 3.13 manually, then re-run this script:"
     echo "   • Via Homebrew: brew install python@3.13"
     echo "   • Or download from: https://www.python.org/downloads/"
     exit 1
 fi
 
-echo "   ✅ Using $PYTHON_CMD (version $PYTHON_VERSION)"
+PYTHON_VERSION=$("$PYTHON_CMD" --version 2>&1 | cut -d' ' -f2)
+echo "   ✅ Using $PYTHON_CMD ($PYTHON_VERSION)"
 
 # Check for git
 echo "📦 Checking for git..."
