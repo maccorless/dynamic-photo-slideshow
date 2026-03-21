@@ -600,12 +600,20 @@ class PygameDisplayManager:
             # pyvidplayer2 Video object has duration property
             try:
                 video_duration = video.duration if hasattr(video, 'duration') and video.duration else max_duration
-                # Use minimum of actual video duration and max_duration cap
-                slide_timer = min(int(video_duration), max_duration)
-                self.logger.debug(f"[VIDEO-COUNTDOWN] Video duration: {video_duration:.1f}s, max_duration: {max_duration}s, using slide_timer: {slide_timer}s")
+                # If video is shorter than half max_duration, it will loop until half_max is reached
+                half_max = max_duration / 2
+                should_loop = video_duration < half_max
+                if should_loop:
+                    slide_timer = int(half_max)
+                    self.logger.debug(f"[VIDEO-COUNTDOWN] Video duration: {video_duration:.1f}s < half_max: {half_max:.1f}s — will loop. slide_timer: {slide_timer}s")
+                else:
+                    slide_timer = min(int(video_duration), max_duration)
+                    self.logger.debug(f"[VIDEO-COUNTDOWN] Video duration: {video_duration:.1f}s, max_duration: {max_duration}s, using slide_timer: {slide_timer}s")
             except Exception as e:
                 self.logger.warning(f"[VIDEO-COUNTDOWN] Could not get video duration: {e}, using max_duration: {max_duration}s")
                 slide_timer = max_duration
+                should_loop = False
+                half_max = max_duration / 2
             
             # Video is now ready - notify controller to start timer
             if hasattr(self, 'controller') and self.controller and hasattr(self.controller, 'current_slide'):
@@ -618,7 +626,7 @@ class PygameDisplayManager:
                 self.logger.warning(f"[VIDEO-READY] No controller available to start timer")
             
             # Normal video playback loop
-            while self.running and self.video_playing and (time.time() - start_time) < max_duration:
+            while self.running and self.video_playing and (time.time() - start_time) < (half_max if should_loop else max_duration):
                 # Check if slideshow is paused
                 if hasattr(self, 'controller') and self.controller and self.controller.is_paused:
                     self.logger.debug(f"[VIDEO-PAUSE] Video paused by slideshow controller")
@@ -729,8 +737,12 @@ class PygameDisplayManager:
                 
                 # Check if video is still playing
                 if not video.active:
-                    self.logger.debug("Video ended naturally")
-                    break
+                    if should_loop and (time.time() - start_time) < half_max:
+                        self.logger.debug(f"[VIDEO-LOOP] Video ended, looping (elapsed: {time.time() - start_time:.1f}s < half_max: {half_max:.1f}s)")
+                        video.restart()
+                    else:
+                        self.logger.debug("Video ended naturally")
+                        break
                 
                 # Clear screen and draw video frame
                 self.screen.fill(self.BLACK)
